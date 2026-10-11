@@ -1,0 +1,8 @@
+
+fastapi
+gpiozero
+lgpio==0.2.2.0
+python-dotenv
+RPi.bme280
+smbus2
+uvicorn[standard]

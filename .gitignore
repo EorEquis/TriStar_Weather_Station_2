@@ -1,0 +1,35 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Private keys
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Runtime data
+data/
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.*_venv/
+venv/
+
+# Node, should JavaScript disease progress
+node_modules/
+
+# Editor / OS debris
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.swp
+*~
