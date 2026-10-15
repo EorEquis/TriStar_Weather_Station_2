@@ -24,6 +24,7 @@ I2C_BUS = 1
 BME280_ADDRESS = 0x76
 LIGHT_GPIO = 17
 MLX90614_ADDRESS = 0x5A
+MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
 
@@ -51,7 +52,8 @@ SENSORS = {
 
 latest = {
     "timestamp": None,
-    "temperature_c": None,
+    "bme_temp_c": None,
+    "mlx_temp_c": None,
     "humidity_pct": None,
     "pressure_hpa": None,
     "dew_point_c": None,
@@ -126,7 +128,7 @@ async def collect_weather():
                             bus, BME280_ADDRESS, calibration
                         )
 
-                        latest["temperature_c"] = round(
+                        latest["bme_temp_c"] = round(
                             reading.temperature, 2
                         )
                         latest["humidity_pct"] = round(
@@ -145,7 +147,7 @@ async def collect_weather():
                         latest["status"]["bme280"] = "available"
 
                     except Exception as exc:
-                        latest["temperature_c"] = None
+                        latest["bme_temp_c"] = None
                         latest["humidity_pct"] = None
                         latest["pressure_hpa"] = None
                         latest["dew_point_c"] = None
@@ -157,18 +159,27 @@ async def collect_weather():
                     if bus is None:
                         raise RuntimeError("I2C bus unavailable")
 
+                    ambient_raw = bus.read_word_data(
+                        MLX90614_ADDRESS, MLX90614_AMBIENT_TEMP_REGISTER
+                    )
                     raw = bus.read_word_data(
                         MLX90614_ADDRESS, MLX90614_OBJECT_TEMP_REGISTER
                     )
+                    if ambient_raw & 0x8000:
+                        raise ValueError("MLX90614 ambient read flagged invalid")
                     if raw & 0x8000:
                         raise ValueError("MLX90614 temperature read flagged invalid")
 
+                    latest["mlx_temp_c"] = round(
+                        (ambient_raw & 0x7FFF) * 0.02 - 273.15, 2
+                    )
                     latest["sky_temperature_c"] = round(
                         (raw & 0x7FFF) * 0.02 - 273.15, 2
                     )
                     latest["status"]["mlx90614_1"] = "available"
 
                 except Exception as exc:
+                    latest["mlx_temp_c"] = None
                     latest["sky_temperature_c"] = None
                     latest["status"]["mlx90614_1"] = "error"
                     print(f"MLX90614 read error: {exc}", flush=True)
