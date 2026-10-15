@@ -23,6 +23,8 @@ from gpiozero import DigitalInputDevice
 I2C_BUS = 1
 BME280_ADDRESS = 0x76
 LIGHT_GPIO = 17
+MLX90614_ADDRESS = 0x5A
+MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
 
 load_dotenv()
@@ -88,9 +90,14 @@ async def collect_weather():
     light = None
 
     try:
-        if READ_BME:
+        if READ_BME or READ_MLX_1:
             try:
                 bus = smbus2.SMBus(I2C_BUS)
+            except Exception as exc:
+                print(f"I2C initialization error: {exc}", flush=True)
+
+        if READ_BME and bus is not None:
+            try:
                 calibration = bme280.load_calibration_params(
                     bus, BME280_ADDRESS
                 )
@@ -144,6 +151,27 @@ async def collect_weather():
                         latest["dew_point_c"] = None
                         latest["status"]["bme280"] = "error"
                         print(f"BME280 read error: {exc}", flush=True)
+
+            if READ_MLX_1:
+                try:
+                    if bus is None:
+                        raise RuntimeError("I2C bus unavailable")
+
+                    raw = bus.read_word_data(
+                        MLX90614_ADDRESS, MLX90614_OBJECT_TEMP_REGISTER
+                    )
+                    if raw & 0x8000:
+                        raise ValueError("MLX90614 temperature read flagged invalid")
+
+                    latest["sky_temperature_c"] = round(
+                        (raw & 0x7FFF) * 0.02 - 273.15, 2
+                    )
+                    latest["status"]["mlx90614_1"] = "available"
+
+                except Exception as exc:
+                    latest["sky_temperature_c"] = None
+                    latest["status"]["mlx90614_1"] = "error"
+                    print(f"MLX90614 read error: {exc}", flush=True)
 
             if READ_LIGHT:
                 if light is not None:
