@@ -14,6 +14,7 @@ import os
 import smbus2
 import uvicorn
 
+from collections import deque
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -27,6 +28,7 @@ MLX90614_ADDRESS = 0x5A
 MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
+TEMP_AVERAGE_SAMPLES = 10
 
 load_dotenv()
 
@@ -53,6 +55,7 @@ SENSORS = {
 latest = {
     "timestamp": None,
     "bme_temp_c": None,
+    "temp_c": None,
     "mlx_temp_c": None,
     "humidity_pct": None,
     "pressure_hpa": None,
@@ -90,6 +93,7 @@ async def collect_weather():
     bus = None
     calibration = None
     light = None
+    temperature_history = deque(maxlen=TEMP_AVERAGE_SAMPLES)
 
     try:
         if READ_BME or READ_MLX_1:
@@ -194,6 +198,21 @@ async def collect_weather():
                         latest["is_dark"] = None
                         latest["status"]["lm393_light"] = "error"
                         print(f"LM393 light read error: {exc}", flush=True)
+
+            if (
+                latest["status"]["bme280"] == "available"
+                and latest["status"]["mlx90614_1"] == "available"
+                and latest["bme_temp_c"] is not None
+                and latest["mlx_temp_c"] is not None
+            ):
+                temperature_history.append(
+                    (latest["bme_temp_c"] + latest["mlx_temp_c"]) / 2
+                )
+
+            latest["temp_c"] = (
+                round(sum(temperature_history) / len(temperature_history), 2)
+                if temperature_history else None
+            )
 
             for name, enabled in SENSORS.items():
                 if not enabled:
