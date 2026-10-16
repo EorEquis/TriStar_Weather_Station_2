@@ -2,6 +2,7 @@
 const byte anemometerPin = 2;
 const byte rainBucketPin = 3;
 const byte windVanePin = A0;
+const byte lightAnalogPin = A1;
 
 const unsigned long anemometerDebounceMs = 8;
 const unsigned long rainBucketDebounceMs = 100;
@@ -86,6 +87,7 @@ void setup() {
   pinMode(anemometerPin, INPUT_PULLUP);
   pinMode(rainBucketPin, INPUT_PULLUP);
   pinMode(windVanePin, INPUT);
+  pinMode(lightAnalogPin, INPUT);
 
   attachInterrupt(
     digitalPinToInterrupt(anemometerPin),
@@ -181,6 +183,7 @@ void sendReadings() {
   // Read wind direction
   int adc = analogRead(windVanePin);
   float direction = getWindDirection(adc);
+  int lightAnalog = analogRead(lightAnalogPin);
 
   // Return JSON
   Serial.print("{\"anemometer_pulses\":");
@@ -191,6 +194,9 @@ void sendReadings() {
 
   Serial.print(",\"wind_direction_deg\":");
   Serial.print(direction, 1);
+
+  Serial.print(",\"light_analog\":");
+  Serial.print(lightAnalog);
 
   Serial.println("}");
 }
