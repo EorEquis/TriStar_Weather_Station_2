@@ -71,5 +71,42 @@ def initialize_database(path=DATABASE_PATH):
     return path
 
 
+OBSERVATION_FIELDS = (
+    "timestamp", "bme_temp_c", "temp_c", "mlx_temp_c",
+    "humidity_pct", "pressure_hpa", "pressure_sealevel_hpa",
+    "dew_point_c", "is_dark", "light_value", "is_wet", "wet_value",
+    "sky_temperature_c", "ground_temperature_c", "wind_speed_mps",
+    "wind_dir_deg", "rain_amount_mm", "rain_hourly_mm",
+    "rain_daily_mm", "wind_gust_10min", "wind_gust_hour",
+    "wind_gust_today",
+)
+
+STATUS_FIELDS = (
+    "system", "bme280", "lm393_light", "lm393_rain",
+    "mlx90614_1", "mlx90614_2", "anemometer", "windvane",
+    "rainbucket",
+)
+
+
+def save_observation(reading, path=DATABASE_PATH):
+    """Atomically store one weather snapshot and its sensor statuses."""
+    values = [reading.get(field) for field in OBSERVATION_FIELDS]
+    status = reading.get("status", {})
+    status_values = [status.get(field) for field in STATUS_FIELDS]
+
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        cursor = connection.execute(
+            f"INSERT INTO observations ({', '.join(OBSERVATION_FIELDS)}) "
+            f"VALUES ({', '.join('?' for _ in OBSERVATION_FIELDS)})",
+            values,
+        )
+        connection.execute(
+            f"INSERT INTO status (observation_id, {', '.join(STATUS_FIELDS)}) "
+            f"VALUES ({', '.join('?' for _ in STATUS_FIELDS)})",
+            [cursor.lastrowid, *status_values],
+        )
+
+
 if __name__ == "__main__":
     print(initialize_database())
