@@ -10,9 +10,15 @@
 *.pfx
 
 # Runtime data
-data/
+data/*
+!data/.gitkeep
 logs/
 *.log
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
 
 # Python
 __pycache__/

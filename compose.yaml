@@ -13,8 +13,11 @@ services:
       - /dev/serial0:/dev/serial0
       - /dev/gpiochip0:/dev/gpiochip0
 
+    volumes:
+      - ./data:/app/data
+
     environment:
       - GPIOZERO_PIN_FACTORY=lgpio
       - PYTHONUNBUFFERED=1
     env_file:
-      - .env      
+      - .env
