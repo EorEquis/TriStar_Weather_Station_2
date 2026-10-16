@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from gpiozero import DigitalInputDevice
+from nano_poll import collect_nano
 
 I2C_BUS = 1
 BME280_ADDRESS = 0x76
@@ -69,6 +70,9 @@ latest = {
     "wind_speed_mps": None,
     "wind_dir_deg": None,
     "rain_amount_mm": None,
+    "wind_gust_10min": None,
+    "wind_gust_hour": None,
+    "wind_gust_today": None,
     "status": {
         "system": "unavailable",
         **{
@@ -246,14 +250,18 @@ async def collect_weather():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(collect_weather())
+    nano_task = asyncio.create_task(collect_nano(latest, SENSORS))
 
     try:
         yield
     finally:
         task.cancel()
+        nano_task.cancel()
 
         with suppress(asyncio.CancelledError):
             await task
+        with suppress(asyncio.CancelledError):
+            await nano_task
 
 
 app = FastAPI(
