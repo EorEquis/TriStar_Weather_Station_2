@@ -23,9 +23,9 @@ The original Arduino weather station has retired from active duty, somewhat invo
 ```text
  SparkFun weather meters                  Environmental sensors
  ┌──────────────────────┐                 ┌───────────────────────────┐
- │ Anemometer reed      │                 │ BME280 (I²C)             │
- │ Rain bucket reed     │                 │ MLX90614 #1 (I²C)        │
- │ Wind vane resistor   │                 │ LM393 light digital GPIO │
+ │ Anemometer reed      │                 │ BME280 (I²C)              │
+ │ Rain bucket reed     │                 │ MLX90614 #1 (I²C)         │
+ │ Wind vane resistor   │                 │ LM393 light digital GPIO  │
  └──────────┬───────────┘                 └─────────────┬─────────────┘
             │                                           │
  ┌──────────▼───────────┐                               │
