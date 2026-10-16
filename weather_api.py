@@ -31,9 +31,9 @@ MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
 TEMP_AVERAGE_SAMPLES = 10
-STATION_ELEVATION_M = 321.34  # Ground elevation 318.34 m + sensor height 3 m
-
 load_dotenv()
+
+STATION_ELEVATION_M = float(os.environ["STATION_ELEVATION"])
 
 READ_BME = os.getenv("READ_BME", "false").strip().lower() == "true"
 READ_LIGHT = os.getenv("READ_LIGHT", "false").strip().lower() == "true"
