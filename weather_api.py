@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from gpiozero import DigitalInputDevice
 from nano_poll import collect_nano
 from database import initialize_database, save_observation
+from mysql_sync import SYNC_INTERVAL_SECONDS, sync_pending
 
 I2C_BUS = 1
 BME280_ADDRESS = 0x76
@@ -285,22 +286,37 @@ async def collect_weather():
             light.close()
 
 
+async def sync_weather():
+    while True:
+        try:
+            transferred = await asyncio.to_thread(sync_pending)
+            if transferred:
+                print(f"MySQL synchronized {transferred} observations", flush=True)
+        except Exception as exc:
+            print(f"MySQL synchronization error: {exc}", flush=True)
+        await asyncio.sleep(SYNC_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize_database()
     task = asyncio.create_task(collect_weather())
     nano_task = asyncio.create_task(collect_nano(latest, SENSORS))
+    sync_task = asyncio.create_task(sync_weather())
 
     try:
         yield
     finally:
         task.cancel()
         nano_task.cancel()
+        sync_task.cancel()
 
         with suppress(asyncio.CancelledError):
             await task
         with suppress(asyncio.CancelledError):
             await nano_task
+        with suppress(asyncio.CancelledError):
+            await sync_task
 
 
 app = FastAPI(
