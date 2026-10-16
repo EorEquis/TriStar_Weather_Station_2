@@ -1,9 +1,10 @@
--- Apply once to the existing MySQL database (weather_station_v2).
+-- Reference schema for existing MySQL database (weather_station_v2).
+-- Tables already exist; do not apply this file to the running database.
 -- IDs come from SQLite: neither MySQL table uses AUTO_INCREMENT.
--- MySQL DATETIME values are stored in UTC.
+-- obs_timestamp stores the original UTC ISO-8601 string.
 CREATE TABLE IF NOT EXISTS observations (
     observation_id BIGINT NOT NULL PRIMARY KEY,
-    obs_timestamp DATETIME(6) NOT NULL,
+    obs_timestamp VARCHAR(40) NOT NULL,
     bme_temp_c DOUBLE NULL,
     temp_c DOUBLE NULL,
     mlx_temp_c DOUBLE NULL,
@@ -12,9 +13,9 @@ CREATE TABLE IF NOT EXISTS observations (
     pressure_sealevel_hpa DOUBLE NULL,
     dew_point_c DOUBLE NULL,
     is_dark TINYINT NULL,
-    light_value TINYINT NULL,
+    light_value INT NULL,
     is_wet TINYINT NULL,
-    wet_value TINYINT NULL,
+    wet_value INT NULL,
     sky_temperature_c DOUBLE NULL,
     ground_temperature_c DOUBLE NULL,
     wind_speed_mps DOUBLE NULL,
@@ -29,7 +30,8 @@ CREATE TABLE IF NOT EXISTS observations (
     future_obs_2 DOUBLE NULL,
     future_obs_3 DOUBLE NULL,
     future_obs_4 DOUBLE NULL,
-    future_obs_5 DOUBLE NULL
+    future_obs_5 DOUBLE NULL,
+    synced TINYINT NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS status (
