@@ -1,4 +1,3 @@
-
 ###########################################################################
 # Created : 2026-10-11 GB
 # Purpose : Weather API for TriStar WXStation V2
@@ -24,8 +23,6 @@ from gpiozero import DigitalInputDevice
 from mysql_sync import SYNC_INTERVAL_SECONDS, sync_pending
 from nano_poll import collect_nano
 
-
-
 BME280_ADDRESS = 0x76
 I2C_BUS = 1
 LIGHT_GPIO = 17
@@ -39,14 +36,14 @@ load_dotenv()
 
 STATION_ELEVATION_M = float(os.environ["STATION_ELEVATION"])
 
+READ_ANEMOMETER = os.getenv("READ_ANEMOMETER", "false").strip().lower() == "true"
 READ_BME = os.getenv("READ_BME", "false").strip().lower() == "true"
 READ_LIGHT = os.getenv("READ_LIGHT", "false").strip().lower() == "true"
-READ_RAIN_SENSOR = os.getenv("READ_RAIN_SENSOR", "false").strip().lower() == "true"
 READ_MLX_1 = os.getenv("READ_MLX_1", "false").strip().lower() == "true"
 READ_MLX_2 = os.getenv("READ_MLX_2", "false").strip().lower() == "true"
-READ_ANEMOMETER = os.getenv("READ_ANEMOMETER", "false").strip().lower() == "true"
-READ_WINDVANE = os.getenv("READ_WINDVANE", "false").strip().lower() == "true"
 READ_RAINBUCKET = os.getenv("READ_RAINBUCKET", "false").strip().lower() == "true"
+READ_RAIN_SENSOR = os.getenv("READ_RAIN_SENSOR", "false").strip().lower() == "true"
+READ_WINDVANE = os.getenv("READ_WINDVANE", "false").strip().lower() == "true"
 
 SENSORS = {
     "bme280": READ_BME,
@@ -289,17 +286,6 @@ async def collect_weather():
             light.close()
 
 
-async def sync_weather():
-    while True:
-        try:
-            transferred = await asyncio.to_thread(sync_pending)
-            if transferred:
-                print(f"MySQL synchronized {transferred} observations", flush=True)
-        except Exception as exc:
-            print(f"MySQL synchronization error: {exc}", flush=True)
-        await asyncio.sleep(SYNC_INTERVAL_SECONDS)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize_database()
@@ -320,6 +306,17 @@ async def lifespan(app: FastAPI):
             await nano_task
         with suppress(asyncio.CancelledError):
             await sync_task
+
+
+async def sync_weather():
+    while True:
+        try:
+            transferred = await asyncio.to_thread(sync_pending)
+            if transferred:
+                print(f"MySQL synchronized {transferred} observations", flush=True)
+        except Exception as exc:
+            print(f"MySQL synchronization error: {exc}", flush=True)
+        await asyncio.sleep(SYNC_INTERVAL_SECONDS)
 
 
 app = FastAPI(
