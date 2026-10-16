@@ -115,21 +115,6 @@ async def collect_weather():
     temperature_history = deque(maxlen=TEMP_AVERAGE_SAMPLES)
 
     try:
-        if READ_BME or READ_MLX_1:
-            try:
-                bus = smbus2.SMBus(I2C_BUS)
-            except Exception as exc:
-                print(f"I2C initialization error: {exc}", flush=True)
-
-        if READ_BME and bus is not None:
-            try:
-                calibration = bme280.load_calibration_params(
-                    bus, BME280_ADDRESS
-                )
-            except Exception as exc:
-                latest["status"]["bme280"] = "error"
-                print(f"BME280 initialization error: {exc}", flush=True)
-
         if READ_LIGHT:
             try:
                 light = DigitalInputDevice(
@@ -140,6 +125,22 @@ async def collect_weather():
                 print(f"LM393 light initialization error: {exc}", flush=True)
 
         while True:
+            # Retry I2C bus and BME280 calibration on subsequent sample cycles.
+            if (READ_BME or READ_MLX_1) and bus is None:
+                try:
+                    bus = smbus2.SMBus(I2C_BUS)
+                except Exception as exc:
+                    print(f"I2C initialization error: {exc}", flush=True)
+
+            if READ_BME and bus is not None and calibration is None:
+                try:
+                    calibration = bme280.load_calibration_params(
+                        bus, BME280_ADDRESS
+                    )
+                except Exception as exc:
+                    latest["status"]["bme280"] = "error"
+                    print(f"BME280 initialization error: {exc}", flush=True)
+
             latest["timestamp"] = datetime.now(
                 timezone.utc
             ).isoformat()
@@ -212,6 +213,16 @@ async def collect_weather():
                     latest["sky_temperature_c"] = None
                     latest["status"]["mlx90614_1"] = "error"
                     print(f"MLX90614 read error: {exc}", flush=True)
+
+            # Reopen the bus after an I/O failure instead of requiring
+            # a container restart. Calibration is reloaded with the new bus.
+            if bus is not None and (
+                (READ_BME and latest["status"]["bme280"] == "error" and calibration is not None)
+                or (READ_MLX_1 and latest["status"]["mlx90614_1"] == "error")
+            ):
+                bus.close()
+                bus = None
+                calibration = None
 
             if READ_LIGHT:
                 if light is not None:
