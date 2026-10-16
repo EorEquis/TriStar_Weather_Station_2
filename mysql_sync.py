@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
 import pymysql
@@ -84,7 +85,7 @@ def sync_once(path=DATABASE_PATH):
 
     Safe to retry after a crash between the remote commit and local update.
     """
-    with connect_database(path) as local:
+    with closing(connect_database(path)) as local, local:
         local.row_factory = sqlite3.Row
         observations = local.execute(
             "SELECT * FROM observations WHERE synced = 0 "
