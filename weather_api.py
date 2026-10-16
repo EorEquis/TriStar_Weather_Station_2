@@ -31,6 +31,7 @@ MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
 TEMP_AVERAGE_SAMPLES = 10
+STATION_ELEVATION_M = 321.34  # Ground elevation 318.34 m + sensor height 3 m
 
 load_dotenv()
 
@@ -61,6 +62,7 @@ latest = {
     "mlx_temp_c": None,
     "humidity_pct": None,
     "pressure_hpa": None,
+    "pressure_sealevel_hpa": None,
     "dew_point_c": None,
     "is_dark": None,
     "light_value": None,
@@ -94,6 +96,16 @@ def calculate_dew_point(temp_c, humidity):
     b = 243.04
     gamma = math.log(humidity / 100) + a * temp_c / (b + temp_c)
     return b * gamma / (a - gamma)
+
+
+def calculate_sea_level_pressure(pressure_hpa, temperature_c):
+    """Reduce station pressure to sea level using measured ambient temperature."""
+    temperature_k = temperature_c + 273.15
+    lapse_rate = 0.0065  # K/m, standard tropospheric lapse rate
+    exponent = 9.80665 / (287.05 * lapse_rate)
+    return pressure_hpa * (
+        (temperature_k + lapse_rate * STATION_ELEVATION_M) / temperature_k
+    ) ** exponent
 
 
 async def collect_weather():
@@ -148,6 +160,11 @@ async def collect_weather():
                         latest["pressure_hpa"] = round(
                             reading.pressure, 2
                         )
+                        latest["pressure_sealevel_hpa"] = round(
+                            calculate_sea_level_pressure(
+                                reading.pressure, reading.temperature
+                            ), 2
+                        )
                         latest["dew_point_c"] = round(
                             calculate_dew_point(
                                 reading.temperature,
@@ -161,6 +178,7 @@ async def collect_weather():
                         latest["bme_temp_c"] = None
                         latest["humidity_pct"] = None
                         latest["pressure_hpa"] = None
+                        latest["pressure_sealevel_hpa"] = None
                         latest["dew_point_c"] = None
                         latest["status"]["bme280"] = "error"
                         print(f"BME280 read error: {exc}", flush=True)
