@@ -7,3 +7,4 @@ RPi.bme280
 smbus2
 uvicorn[standard]
 pyserial
+pymysql

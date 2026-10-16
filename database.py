@@ -7,7 +7,7 @@ DATABASE_PATH = Path(__file__).resolve().parent / "data" / "weather.sqlite3"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
-    observation_id INTEGER PRIMARY KEY,
+    observation_id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
     bme_temp_c REAL,
     temp_c REAL,
@@ -30,16 +30,16 @@ CREATE TABLE IF NOT EXISTS observations (
     wind_gust_10min REAL,
     wind_gust_hour REAL,
     wind_gust_today REAL,
-    synced INTEGER NOT NULL DEFAULT 0 CHECK (synced IN (0, 1)),
     future_obs_1 REAL,
     future_obs_2 REAL,
     future_obs_3 REAL,
     future_obs_4 REAL,
-    future_obs_5 REAL
+    future_obs_5 REAL,
+    synced INTEGER NOT NULL DEFAULT 0 CHECK (synced IN (0, 1))
 );
 
 CREATE TABLE IF NOT EXISTS status (
-    status_id INTEGER PRIMARY KEY,
+    status_id INTEGER PRIMARY KEY AUTOINCREMENT,
     observation_id INTEGER NOT NULL UNIQUE,
     system TEXT,
     bme280 TEXT,
@@ -61,12 +61,18 @@ CREATE TABLE IF NOT EXISTS status (
 """
 
 
+def connect_database(path=DATABASE_PATH):
+    """Open SQLite with foreign-key enforcement enabled."""
+    connection = sqlite3.connect(path)
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
+
+
 def initialize_database(path=DATABASE_PATH):
     """Create the SQLite database and tables if they do not exist."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path) as connection:
-        connection.execute("PRAGMA foreign_keys = ON")
+    with connect_database(path) as connection:
         connection.executescript(SCHEMA)
     return path
 
@@ -94,8 +100,7 @@ def save_observation(reading, path=DATABASE_PATH):
     status = reading.get("status", {})
     status_values = [status.get(field) for field in STATUS_FIELDS]
 
-    with sqlite3.connect(path) as connection:
-        connection.execute("PRAGMA foreign_keys = ON")
+    with connect_database(path) as connection:
         cursor = connection.execute(
             f"INSERT INTO observations ({', '.join(OBSERVATION_FIELDS)}) "
             f"VALUES ({', '.join('?' for _ in OBSERVATION_FIELDS)})",

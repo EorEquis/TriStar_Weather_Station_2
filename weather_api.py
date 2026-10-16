@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from gpiozero import DigitalInputDevice
 from nano_poll import collect_nano
 from database import initialize_database, save_observation
+from mysql_sync import SYNC_INTERVAL_SECONDS, sync_pending
 
 I2C_BUS = 1
 BME280_ADDRESS = 0x76
@@ -31,9 +32,9 @@ MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
 TEMP_AVERAGE_SAMPLES = 10
-STATION_ELEVATION_M = 321.34  # Ground elevation 318.34 m + sensor height 3 m
-
 load_dotenv()
+
+STATION_ELEVATION_M = float(os.environ["STATION_ELEVATION"])
 
 READ_BME = os.getenv("READ_BME", "false").strip().lower() == "true"
 READ_LIGHT = os.getenv("READ_LIGHT", "false").strip().lower() == "true"
@@ -115,21 +116,6 @@ async def collect_weather():
     temperature_history = deque(maxlen=TEMP_AVERAGE_SAMPLES)
 
     try:
-        if READ_BME or READ_MLX_1:
-            try:
-                bus = smbus2.SMBus(I2C_BUS)
-            except Exception as exc:
-                print(f"I2C initialization error: {exc}", flush=True)
-
-        if READ_BME and bus is not None:
-            try:
-                calibration = bme280.load_calibration_params(
-                    bus, BME280_ADDRESS
-                )
-            except Exception as exc:
-                latest["status"]["bme280"] = "error"
-                print(f"BME280 initialization error: {exc}", flush=True)
-
         if READ_LIGHT:
             try:
                 light = DigitalInputDevice(
@@ -140,6 +126,22 @@ async def collect_weather():
                 print(f"LM393 light initialization error: {exc}", flush=True)
 
         while True:
+            # Retry I2C bus and BME280 calibration on subsequent sample cycles.
+            if (READ_BME or READ_MLX_1) and bus is None:
+                try:
+                    bus = smbus2.SMBus(I2C_BUS)
+                except Exception as exc:
+                    print(f"I2C initialization error: {exc}", flush=True)
+
+            if READ_BME and bus is not None and calibration is None:
+                try:
+                    calibration = bme280.load_calibration_params(
+                        bus, BME280_ADDRESS
+                    )
+                except Exception as exc:
+                    latest["status"]["bme280"] = "error"
+                    print(f"BME280 initialization error: {exc}", flush=True)
+
             latest["timestamp"] = datetime.now(
                 timezone.utc
             ).isoformat()
@@ -213,6 +215,16 @@ async def collect_weather():
                     latest["status"]["mlx90614_1"] = "error"
                     print(f"MLX90614 read error: {exc}", flush=True)
 
+            # Reopen the bus after an I/O failure instead of requiring
+            # a container restart. Calibration is reloaded with the new bus.
+            if bus is not None and (
+                (READ_BME and latest["status"]["bme280"] == "error" and calibration is not None)
+                or (READ_MLX_1 and latest["status"]["mlx90614_1"] == "error")
+            ):
+                bus.close()
+                bus = None
+                calibration = None
+
             if READ_LIGHT:
                 if light is not None:
                     try:
@@ -274,22 +286,37 @@ async def collect_weather():
             light.close()
 
 
+async def sync_weather():
+    while True:
+        try:
+            transferred = await asyncio.to_thread(sync_pending)
+            if transferred:
+                print(f"MySQL synchronized {transferred} observations", flush=True)
+        except Exception as exc:
+            print(f"MySQL synchronization error: {exc}", flush=True)
+        await asyncio.sleep(SYNC_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize_database()
     task = asyncio.create_task(collect_weather())
     nano_task = asyncio.create_task(collect_nano(latest, SENSORS))
+    sync_task = asyncio.create_task(sync_weather())
 
     try:
         yield
     finally:
         task.cancel()
         nano_task.cancel()
+        sync_task.cancel()
 
         with suppress(asyncio.CancelledError):
             await task
         with suppress(asyncio.CancelledError):
             await nano_task
+        with suppress(asyncio.CancelledError):
+            await sync_task
 
 
 app = FastAPI(
