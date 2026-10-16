@@ -70,6 +70,8 @@ latest = {
     "wind_speed_mps": None,
     "wind_dir_deg": None,
     "rain_amount_mm": None,
+    "rain_hourly_mm": None,
+    "rain_daily_mm": None,
     "wind_gust_10min": None,
     "wind_gust_hour": None,
     "wind_gust_today": None,
