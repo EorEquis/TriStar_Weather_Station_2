@@ -89,19 +89,6 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     if covered >= 2.5:
                         average = sum(item[1] * item[2] for item in wind_samples) / covered
                         gust_samples.append((utc_now, average))
-                    cutoff = utc_now - timedelta(hours=24)
-                    while gust_samples and gust_samples[0][0] < cutoff:
-                        gust_samples.popleft()
-                    local_midnight = utc_now.astimezone(STATION_TIMEZONE).replace(
-                        hour=0, minute=0, second=0, microsecond=0
-                    ).astimezone(timezone.utc)
-                    for key, start in (
-                        ("wind_gust_10min", utc_now - timedelta(minutes=10)),
-                        ("wind_gust_hour", utc_now - timedelta(hours=1)),
-                        ("wind_gust_today", local_midnight),
-                    ):
-                        values = [value for stamp, value in gust_samples if stamp >= start]
-                        latest[key] = round(max(values), 3) if values else None
                     latest["status"]["anemometer"] = "available"
                 if direction_enabled:
                     if not math.isfinite(direction) or not 0 <= direction < 360:
@@ -112,21 +99,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     if tips < 0:
                         raise ValueError("Negative rain tip count")
                     rain_samples.append((utc_now, tips))
-                    cutoff = utc_now - timedelta(hours=24)
-                    while rain_samples and rain_samples[0][0] < cutoff:
-                        rain_samples.popleft()
-                    local_midnight = utc_now.astimezone(STATION_TIMEZONE).replace(
-                        hour=0, minute=0, second=0, microsecond=0
-                    ).astimezone(timezone.utc)
                     latest["rain_amount_mm"] = round(tips * RAIN_MM_PER_TIP, 4)
-                    latest["rain_hourly_mm"] = round(
-                        sum(count for stamp, count in rain_samples
-                            if stamp >= utc_now - timedelta(hours=1)) * RAIN_MM_PER_TIP, 4
-                    )
-                    latest["rain_daily_mm"] = round(
-                        sum(count for stamp, count in rain_samples
-                            if stamp >= local_midnight) * RAIN_MM_PER_TIP, 4
-                    )
                     latest["status"]["rainbucket"] = "available"
             except asyncio.CancelledError:
                 raise
@@ -155,6 +128,37 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     latest["wind_dir_deg"] = None
                 if rain_enabled:
                     latest["rain_amount_mm"] = None
+            # Advance reporting windows even when the Nano cannot be read.
+            utc_now = datetime.now(timezone.utc)
+            local_midnight = utc_now.astimezone(STATION_TIMEZONE).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ).astimezone(timezone.utc)
+            if wind_enabled:
+                cutoff = min(utc_now - timedelta(hours=24), local_midnight)
+                while gust_samples and gust_samples[0][0] < cutoff:
+                    gust_samples.popleft()
+                for key, start in (
+                    ("wind_gust_10min", utc_now - timedelta(minutes=10)),
+                    ("wind_gust_hour", utc_now - timedelta(hours=1)),
+                    ("wind_gust_today", local_midnight),
+                ):
+                    values = [value for stamp, value in gust_samples if stamp >= start]
+                    latest[key] = round(max(values), 3) if values else None
+            if rain_enabled:
+                cutoff = min(utc_now - timedelta(hours=1), local_midnight)
+                while rain_samples and rain_samples[0][0] < cutoff:
+                    rain_samples.popleft()
+                hourly = [count for stamp, count in rain_samples
+                          if stamp >= utc_now - timedelta(hours=1)]
+                daily = [count for stamp, count in rain_samples
+                         if stamp >= local_midnight]
+                # A successful zero-tip reading is still a valid measurement.
+                latest["rain_hourly_mm"] = (
+                    round(sum(hourly) * RAIN_MM_PER_TIP, 4) if hourly else None
+                )
+                latest["rain_daily_mm"] = (
+                    round(sum(daily) * RAIN_MM_PER_TIP, 4) if daily else None
+                )
             await asyncio.sleep(max(0, 1 - (time.monotonic() - cycle_start)))
     finally:
         if port is not None:
