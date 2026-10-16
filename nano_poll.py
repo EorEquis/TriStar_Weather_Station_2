@@ -69,6 +69,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     if not 0 <= light_analog <= 1023:
                         raise ValueError(f"Invalid light ADC reading: {light_analog}")
                     latest["light_value"] = light_analog
+                    latest["status"]["lm393_light"] = "available"
                 if rain_sensor_enabled:
                     if rain_digital not in (0, 1):
                         raise ValueError(f"Invalid rain sensor digital reading: {rain_digital}")
@@ -119,6 +120,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                         latest["status"][name] = "error"
                 if light_enabled:
                     latest["light_value"] = None
+                    latest["status"]["lm393_light"] = "error"
                 if rain_sensor_enabled:
                     latest["is_wet"] = None
                     latest["wet_value"] = None
