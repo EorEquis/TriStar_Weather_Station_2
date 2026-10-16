@@ -6,11 +6,13 @@ import math
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import serial
 
 WIND_MPS_PER_HZ = 1.492 * 0.44704
 RAIN_MM_PER_TIP = 0.2794
+STATION_TIMEZONE = ZoneInfo("America/Chicago")
 
 
 def poll_once(port):
@@ -90,7 +92,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     cutoff = utc_now - timedelta(hours=24)
                     while gust_samples and gust_samples[0][0] < cutoff:
                         gust_samples.popleft()
-                    local_midnight = datetime.now().astimezone().replace(
+                    local_midnight = utc_now.astimezone(STATION_TIMEZONE).replace(
                         hour=0, minute=0, second=0, microsecond=0
                     ).astimezone(timezone.utc)
                     for key, start in (
@@ -113,7 +115,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     cutoff = utc_now - timedelta(hours=24)
                     while rain_samples and rain_samples[0][0] < cutoff:
                         rain_samples.popleft()
-                    local_midnight = datetime.now().astimezone().replace(
+                    local_midnight = utc_now.astimezone(STATION_TIMEZONE).replace(
                         hour=0, minute=0, second=0, microsecond=0
                     ).astimezone(timezone.utc)
                     latest["rain_amount_mm"] = round(tips * RAIN_MM_PER_TIP, 4)
