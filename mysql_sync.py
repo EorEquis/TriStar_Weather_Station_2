@@ -73,10 +73,6 @@ STATUS_INSERT = insert_sql("status", MYSQL_STATUS_COLUMNS)
 
 def mysql_observation(row):
     values = [row[column] for column in OBSERVATION_COLUMNS]
-    # SQLite stores UTC ISO-8601 text; MySQL DATETIME stores UTC without tz.
-    values[1] = datetime.fromisoformat(values[1]).astimezone(
-        timezone.utc
-    ).replace(tzinfo=None)
     return values
 
 
