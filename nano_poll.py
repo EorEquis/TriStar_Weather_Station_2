@@ -1,4 +1,4 @@
-"""Poll the Nano UART once per second; compute wind and gust observations."""
+"""Poll the Nano UART once per second; compute wind, gust, and rain observations."""
 
 import asyncio
 import json
@@ -44,7 +44,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
     last_poll = None
     wind_samples = deque()  # (monotonic timestamp, speed, elapsed)
     gust_samples = deque()  # (UTC datetime, 3-second average)
-    rain_tips = 0
+    rain_samples = deque()  # (UTC datetime, bucket tips)
     try:
         while True:
             cycle_start = time.monotonic()
@@ -109,8 +109,22 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                 if rain_enabled:
                     if tips < 0:
                         raise ValueError("Negative rain tip count")
-                    rain_tips += tips
-                    latest["rain_amount_mm"] = round(rain_tips * RAIN_MM_PER_TIP, 4)
+                    rain_samples.append((utc_now, tips))
+                    cutoff = utc_now - timedelta(hours=24)
+                    while rain_samples and rain_samples[0][0] < cutoff:
+                        rain_samples.popleft()
+                    local_midnight = datetime.now().astimezone().replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    ).astimezone(timezone.utc)
+                    latest["rain_amount_mm"] = round(tips * RAIN_MM_PER_TIP, 4)
+                    latest["rain_hourly_mm"] = round(
+                        sum(count for stamp, count in rain_samples
+                            if stamp >= utc_now - timedelta(hours=1)) * RAIN_MM_PER_TIP, 4
+                    )
+                    latest["rain_daily_mm"] = round(
+                        sum(count for stamp, count in rain_samples
+                            if stamp >= local_midnight) * RAIN_MM_PER_TIP, 4
+                    )
                     latest["status"]["rainbucket"] = "available"
             except asyncio.CancelledError:
                 raise
@@ -137,6 +151,8 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     latest["wind_speed_mps"] = None
                 if direction_enabled:
                     latest["wind_dir_deg"] = None
+                if rain_enabled:
+                    latest["rain_amount_mm"] = None
             await asyncio.sleep(max(0, 1 - (time.monotonic() - cycle_start)))
     finally:
         if port is not None:
