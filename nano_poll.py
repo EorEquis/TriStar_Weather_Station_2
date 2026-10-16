@@ -1,35 +1,26 @@
+###########################################################################
+# Created : 2026-10-16 GB
+# Purpose : Poll the Nano UART and calculate wind and rain observations
+# Notes   : Most code was generated with assistance from ChatGPT.
+#           Chat title: Wx Station N
+#           OpenAI model/version: GPT-6
+###########################################################################
+
 """Poll the Nano UART once per second; compute wind, gust, and rain observations."""
 
 import asyncio
 import json
 import math
+import serial
 import time
+
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import serial
-
-WIND_MPS_PER_HZ = 1.492 * 0.44704
 RAIN_MM_PER_TIP = 0.2794
 STATION_TIMEZONE = ZoneInfo("America/Chicago")
-
-
-def poll_once(port):
-    port.write(b"READ\n")
-    port.flush()
-    response = port.readline()
-    if not response:
-        raise TimeoutError("Nano READ timed out")
-    payload = json.loads(response.decode("ascii"))
-    return (
-        int(payload["anemometer_pulses"]),
-        int(payload["rain_bucket_tips"]),
-        float(payload["wind_direction_deg"]),
-        int(payload["light_analog"]),
-        int(payload["rain_sensor_digital"]),
-        int(payload["rain_sensor_analog"]),
-    )
+WIND_MPS_PER_HZ = 1.492 * 0.44704
 
 
 async def collect_nano(latest, enabled, port_name="/dev/serial0"):
@@ -39,7 +30,10 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
     rain_enabled = enabled["rainbucket"]
     light_enabled = enabled["lm393_light"]
     rain_sensor_enabled = enabled["lm393_rain"]
-    if not (wind_enabled or direction_enabled or rain_enabled or light_enabled or rain_sensor_enabled):
+    if not (
+        wind_enabled or direction_enabled or rain_enabled
+        or light_enabled or rain_sensor_enabled
+    ):
         return
 
     port = None
@@ -57,7 +51,10 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     )
                     # Opening a serial port starts a fresh measurement interval.
                     last_poll = time.monotonic()
-                pulses, tips, direction, light_analog, rain_digital, rain_analog = await asyncio.to_thread(poll_once, port)
+                (
+                    pulses, tips, direction, light_analog,
+                    rain_digital, rain_analog,
+                ) = await asyncio.to_thread(poll_once, port)
                 now = time.monotonic()
                 utc_now = datetime.now(timezone.utc)
                 elapsed = now - last_poll
@@ -69,6 +66,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     if not 0 <= light_analog <= 1023:
                         raise ValueError(f"Invalid light ADC reading: {light_analog}")
                     latest["light_value"] = light_analog
+                    latest["status"]["lm393_light"] = "available"
                 if rain_sensor_enabled:
                     if rain_digital not in (0, 1):
                         raise ValueError(f"Invalid rain sensor digital reading: {rain_digital}")
@@ -87,7 +85,9 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     # three seconds of samples before reporting a gust.
                     covered = sum(item[2] for item in wind_samples)
                     if covered >= 2.5:
-                        average = sum(item[1] * item[2] for item in wind_samples) / covered
+                        average = sum(
+                            item[1] * item[2] for item in wind_samples
+                        ) / covered
                         gust_samples.append((utc_now, average))
                     latest["status"]["anemometer"] = "available"
                 if direction_enabled:
@@ -119,6 +119,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                         latest["status"][name] = "error"
                 if light_enabled:
                     latest["light_value"] = None
+                    latest["status"]["lm393_light"] = "error"
                 if rain_sensor_enabled:
                     latest["is_wet"] = None
                     latest["wet_value"] = None
@@ -142,16 +143,22 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     ("wind_gust_hour", utc_now - timedelta(hours=1)),
                     ("wind_gust_today", local_midnight),
                 ):
-                    values = [value for stamp, value in gust_samples if stamp >= start]
+                    values = [
+                        value for stamp, value in gust_samples if stamp >= start
+                    ]
                     latest[key] = round(max(values), 3) if values else None
             if rain_enabled:
                 cutoff = min(utc_now - timedelta(hours=1), local_midnight)
                 while rain_samples and rain_samples[0][0] < cutoff:
                     rain_samples.popleft()
-                hourly = [count for stamp, count in rain_samples
-                          if stamp >= utc_now - timedelta(hours=1)]
-                daily = [count for stamp, count in rain_samples
-                         if stamp >= local_midnight]
+                hourly = [
+                    count for stamp, count in rain_samples
+                    if stamp >= utc_now - timedelta(hours=1)
+                ]
+                daily = [
+                    count for stamp, count in rain_samples
+                    if stamp >= local_midnight
+                ]
                 # A successful zero-tip reading is still a valid measurement.
                 latest["rain_hourly_mm"] = (
                     round(sum(hourly) * RAIN_MM_PER_TIP, 4) if hourly else None
@@ -163,3 +170,20 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
     finally:
         if port is not None:
             await asyncio.to_thread(port.close)
+
+
+def poll_once(port):
+    port.write(b"READ\n")
+    port.flush()
+    response = port.readline()
+    if not response:
+        raise TimeoutError("Nano READ timed out")
+    payload = json.loads(response.decode("ascii"))
+    return (
+        int(payload["anemometer_pulses"]),
+        int(payload["rain_bucket_tips"]),
+        float(payload["wind_direction_deg"]),
+        int(payload["light_analog"]),
+        int(payload["rain_sensor_digital"]),
+        int(payload["rain_sensor_analog"]),
+    )

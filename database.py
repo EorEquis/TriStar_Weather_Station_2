@@ -1,3 +1,11 @@
+###########################################################################
+# Created : 2026-10-16 GB
+# Purpose : SQLite database for weather observations and sensor statuses
+# Notes   : Most code was generated with assistance from ChatGPT.
+#           Chat title: Wx Station N
+#           OpenAI model/version: GPT-6
+###########################################################################
+
 """Local SQLite schema for weather observations and sensor statuses."""
 
 import sqlite3
@@ -62,14 +70,14 @@ CREATE TABLE IF NOT EXISTS status (
 
 
 def connect_database(path=DATABASE_PATH):
-    """Open SQLite with foreign-key enforcement enabled."""
+    # Open SQLite with foreign-key enforcement enabled.
     connection = sqlite3.connect(path)
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
 
 def initialize_database(path=DATABASE_PATH):
-    """Create the SQLite database and tables if they do not exist."""
+    # Create the SQLite database and tables if they do not exist.
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with connect_database(path) as connection:
@@ -95,7 +103,7 @@ STATUS_FIELDS = (
 
 
 def save_observation(reading, path=DATABASE_PATH):
-    """Atomically store one weather snapshot and its sensor statuses."""
+    # Atomically store one weather snapshot and its sensor statuses.
     values = [reading.get(field) for field in OBSERVATION_FIELDS]
     status = reading.get("status", {})
     status_values = [status.get(field) for field in STATUS_FIELDS]
