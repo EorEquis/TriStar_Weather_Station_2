@@ -32,7 +32,7 @@ STATUS_COLUMNS = (
 MYSQL_OBSERVATION_COLUMNS = tuple(
     "obs_timestamp" if column == "timestamp" else column
     for column in OBSERVATION_COLUMNS
-)
+) + ("synced",)
 MYSQL_STATUS_COLUMNS = tuple(
     "sys" if column == "system" else column
     for column in STATUS_COLUMNS
@@ -77,6 +77,8 @@ def mysql_observation(row):
     values[1] = datetime.fromisoformat(values[1]).astimezone(
         timezone.utc
     ).replace(tzinfo=None)
+    # This row is being inserted into MySQL, so it is synchronized by definition.
+    values.append(1)
     return values
 
 
