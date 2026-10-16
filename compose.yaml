@@ -1,0 +1,20 @@
+
+services:
+  weather:
+    build: .
+    container_name: tristar-weather
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
+
+    devices:
+      - /dev/i2c-1:/dev/i2c-1
+      - /dev/serial0:/dev/serial0
+      - /dev/gpiochip0:/dev/gpiochip0
+
+    environment:
+      - GPIOZERO_PIN_FACTORY=lgpio
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env      
