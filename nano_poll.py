@@ -25,6 +25,8 @@ def poll_once(port):
         int(payload["rain_bucket_tips"]),
         float(payload["wind_direction_deg"]),
         int(payload["light_analog"]),
+        int(payload["rain_sensor_digital"]),
+        int(payload["rain_sensor_analog"]),
     )
 
 
@@ -34,7 +36,8 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
     direction_enabled = enabled["windvane"]
     rain_enabled = enabled["rainbucket"]
     light_enabled = enabled["lm393_light"]
-    if not (wind_enabled or direction_enabled or rain_enabled or light_enabled):
+    rain_sensor_enabled = enabled["lm393_rain"]
+    if not (wind_enabled or direction_enabled or rain_enabled or light_enabled or rain_sensor_enabled):
         return
 
     port = None
@@ -52,7 +55,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     )
                     # Opening a serial port starts a fresh measurement interval.
                     last_poll = time.monotonic()
-                pulses, tips, direction, light_analog = await asyncio.to_thread(poll_once, port)
+                pulses, tips, direction, light_analog, rain_digital, rain_analog = await asyncio.to_thread(poll_once, port)
                 now = time.monotonic()
                 utc_now = datetime.now(timezone.utc)
                 elapsed = now - last_poll
@@ -64,6 +67,14 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     if not 0 <= light_analog <= 1023:
                         raise ValueError(f"Invalid light ADC reading: {light_analog}")
                     latest["light_value"] = light_analog
+                if rain_sensor_enabled:
+                    if rain_digital not in (0, 1):
+                        raise ValueError(f"Invalid rain sensor digital reading: {rain_digital}")
+                    if not 0 <= rain_analog <= 1023:
+                        raise ValueError(f"Invalid rain sensor ADC reading: {rain_analog}")
+                    latest["is_wet"] = rain_digital == 0
+                    latest["wet_value"] = rain_analog
+                    latest["status"]["lm393_rain"] = "available"
                 if wind_enabled:
                     speed = pulses / elapsed * WIND_MPS_PER_HZ
                     latest["wind_speed_mps"] = round(speed, 3)
@@ -113,11 +124,15 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     ("anemometer", wind_enabled),
                     ("windvane", direction_enabled),
                     ("rainbucket", rain_enabled),
+                    ("lm393_rain", rain_sensor_enabled),
                 ):
                     if active:
                         latest["status"][name] = "error"
                 if light_enabled:
                     latest["light_value"] = None
+                if rain_sensor_enabled:
+                    latest["is_wet"] = None
+                    latest["wet_value"] = None
                 if wind_enabled:
                     latest["wind_speed_mps"] = None
                 if direction_enabled:
