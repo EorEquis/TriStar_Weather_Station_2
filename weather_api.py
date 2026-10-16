@@ -16,13 +16,15 @@ import uvicorn
 
 from collections import deque
 from contextlib import asynccontextmanager, suppress
+from database import initialize_database, save_observation
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from gpiozero import DigitalInputDevice
-from nano_poll import collect_nano
-from database import initialize_database, save_observation
 from mysql_sync import SYNC_INTERVAL_SECONDS, sync_pending
+from nano_poll import collect_nano
+
+
 
 I2C_BUS = 1
 BME280_ADDRESS = 0x76
