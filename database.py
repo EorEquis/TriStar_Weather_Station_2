@@ -103,7 +103,7 @@ def save_observation(reading, path=DATABASE_PATH):
         )
         connection.execute(
             f"INSERT INTO status (observation_id, {', '.join(STATUS_FIELDS)}) "
-            f"VALUES ({', '.join('?' for _ in STATUS_FIELDS)})",
+            f"VALUES (?, {', '.join('?' for _ in STATUS_FIELDS)})",
             [cursor.lastrowid, *status_values],
         )
 
