@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from gpiozero import DigitalInputDevice
 from nano_poll import collect_nano
+from database import initialize_database, save_observation
 
 I2C_BUS = 1
 BME280_ADDRESS = 0x76
@@ -239,6 +240,12 @@ async def collect_weather():
             else:
                 latest["status"]["system"] = "error"
 
+            snapshot = {**latest, "status": latest["status"].copy()}
+            try:
+                await asyncio.to_thread(save_observation, snapshot)
+            except Exception as exc:
+                print(f"SQLite observation write error: {exc}", flush=True)
+
             await asyncio.sleep(SAMPLE_INTERVAL)
 
     finally:
@@ -251,6 +258,7 @@ async def collect_weather():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    initialize_database()
     task = asyncio.create_task(collect_weather())
     nano_task = asyncio.create_task(collect_nano(latest, SENSORS))
 
