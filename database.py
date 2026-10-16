@@ -7,7 +7,7 @@ DATABASE_PATH = Path(__file__).resolve().parent / "data" / "weather.sqlite3"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
-    observation_id INTEGER PRIMARY KEY,
+    observation_id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
     bme_temp_c REAL,
     temp_c REAL,
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS observations (
 );
 
 CREATE TABLE IF NOT EXISTS status (
-    status_id INTEGER PRIMARY KEY,
+    status_id INTEGER PRIMARY KEY AUTOINCREMENT,
     observation_id INTEGER NOT NULL UNIQUE,
     system TEXT,
     bme280 TEXT,
