@@ -1,10 +1,10 @@
 -- Reference schema for existing MySQL database (weather_station_v2).
 -- Tables already exist; do not apply this file to the running database.
 -- IDs come from SQLite: neither MySQL table uses AUTO_INCREMENT.
--- obs_timestamp stores the original UTC ISO-8601 string.
+-- obs_timestamp stores UTC as MySQL DATETIME(6).
 CREATE TABLE IF NOT EXISTS observations (
     observation_id BIGINT NOT NULL PRIMARY KEY,
-    obs_timestamp VARCHAR(40) NOT NULL,
+    obs_timestamp DATETIME(6) NOT NULL,
     bme_temp_c DOUBLE NULL,
     temp_c DOUBLE NULL,
     mlx_temp_c DOUBLE NULL,
