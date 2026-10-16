@@ -30,12 +30,12 @@ CREATE TABLE IF NOT EXISTS observations (
     wind_gust_10min REAL,
     wind_gust_hour REAL,
     wind_gust_today REAL,
-    synced INTEGER NOT NULL DEFAULT 0 CHECK (synced IN (0, 1)),
     future_obs_1 REAL,
     future_obs_2 REAL,
     future_obs_3 REAL,
     future_obs_4 REAL,
-    future_obs_5 REAL
+    future_obs_5 REAL,
+    synced INTEGER NOT NULL DEFAULT 0 CHECK (synced IN (0, 1))
 );
 
 CREATE TABLE IF NOT EXISTS status (
