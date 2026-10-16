@@ -24,6 +24,7 @@ def poll_once(port):
         int(payload["anemometer_pulses"]),
         int(payload["rain_bucket_tips"]),
         float(payload["wind_direction_deg"]),
+        int(payload["light_analog"]),
     )
 
 
@@ -32,7 +33,8 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
     wind_enabled = enabled["anemometer"]
     direction_enabled = enabled["windvane"]
     rain_enabled = enabled["rainbucket"]
-    if not (wind_enabled or direction_enabled or rain_enabled):
+    light_enabled = enabled["lm393_light"]
+    if not (wind_enabled or direction_enabled or rain_enabled or light_enabled):
         return
 
     port = None
@@ -50,7 +52,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     )
                     # Opening a serial port starts a fresh measurement interval.
                     last_poll = time.monotonic()
-                pulses, tips, direction = await asyncio.to_thread(poll_once, port)
+                pulses, tips, direction, light_analog = await asyncio.to_thread(poll_once, port)
                 now = time.monotonic()
                 utc_now = datetime.now(timezone.utc)
                 elapsed = now - last_poll
@@ -58,6 +60,10 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                 if elapsed <= 0:
                     raise ValueError("Non-positive Nano polling interval")
 
+                if light_enabled:
+                    if not 0 <= light_analog <= 1023:
+                        raise ValueError(f"Invalid light ADC reading: {light_analog}")
+                    latest["light_value"] = light_analog
                 if wind_enabled:
                     speed = pulses / elapsed * WIND_MPS_PER_HZ
                     latest["wind_speed_mps"] = round(speed, 3)
@@ -110,6 +116,8 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                 ):
                     if active:
                         latest["status"][name] = "error"
+                if light_enabled:
+                    latest["light_value"] = None
                 if wind_enabled:
                     latest["wind_speed_mps"] = None
                 if direction_enabled:
