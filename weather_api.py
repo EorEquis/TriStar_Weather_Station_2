@@ -29,6 +29,7 @@ MLX90614_ADDRESS = 0x5A
 MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
+I2C_RETRY_DELAY = 0.1
 TEMP_AVERAGE_SAMPLES = 10
 STATION_ELEVATION_M = 321.34  # Ground elevation 318.34 m + sensor height 3 m
 
@@ -146,9 +147,15 @@ async def collect_weather():
             if READ_BME:
                 if bus is not None and calibration is not None:
                     try:
-                        reading = bme280.sample(
-                            bus, BME280_ADDRESS, calibration
-                        )
+                        try:
+                            reading = bme280.sample(
+                                bus, BME280_ADDRESS, calibration
+                            )
+                        except Exception:
+                            await asyncio.sleep(I2C_RETRY_DELAY)
+                            reading = bme280.sample(
+                                bus, BME280_ADDRESS, calibration
+                            )
 
                         latest["bme_temp_c"] = round(
                             reading.temperature, 2
@@ -187,16 +194,24 @@ async def collect_weather():
                     if bus is None:
                         raise RuntimeError("I2C bus unavailable")
 
-                    ambient_raw = bus.read_word_data(
-                        MLX90614_ADDRESS, MLX90614_AMBIENT_TEMP_REGISTER
-                    )
-                    raw = bus.read_word_data(
-                        MLX90614_ADDRESS, MLX90614_OBJECT_TEMP_REGISTER
-                    )
-                    if ambient_raw & 0x8000:
-                        raise ValueError("MLX90614 ambient read flagged invalid")
-                    if raw & 0x8000:
-                        raise ValueError("MLX90614 temperature read flagged invalid")
+                    def read_mlx():
+                        ambient = bus.read_word_data(
+                            MLX90614_ADDRESS, MLX90614_AMBIENT_TEMP_REGISTER
+                        )
+                        obj = bus.read_word_data(
+                            MLX90614_ADDRESS, MLX90614_OBJECT_TEMP_REGISTER
+                        )
+                        if ambient & 0x8000:
+                            raise ValueError("MLX90614 ambient read flagged invalid")
+                        if obj & 0x8000:
+                            raise ValueError("MLX90614 temperature read flagged invalid")
+                        return ambient, obj
+
+                    try:
+                        ambient_raw, raw = read_mlx()
+                    except Exception:
+                        await asyncio.sleep(I2C_RETRY_DELAY)
+                        ambient_raw, raw = read_mlx()
 
                     latest["mlx_temp_c"] = round(
                         (ambient_raw & 0x7FFF) * 0.02 - 273.15, 2
