@@ -113,7 +113,7 @@ async def read_with_retry(read):
     try:
         return read()
     except Exception:
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.5)
         return read()
 
 
