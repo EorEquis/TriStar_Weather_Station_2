@@ -212,9 +212,17 @@ async def collect_weather():
                     if bus is None:
                         raise RuntimeError("I2C bus unavailable")
 
-                    ambient_raw, raw = await read_with_retry(
-                        lambda: read_mlx_temperatures(bus)
-                    )
+                    try:
+                        ambient_raw, raw = read_mlx_temperatures(bus)
+                    except Exception:
+                        # Reset the software I2C connection before the retry.
+                        # BME280 calibration must be reloaded for the new bus.
+                        bus.close()
+                        bus = None
+                        calibration = None
+                        await asyncio.sleep(0.5)
+                        bus = smbus2.SMBus(I2C_BUS)
+                        ambient_raw, raw = read_mlx_temperatures(bus)
 
                     latest["mlx_temp_c"] = round(
                         (ambient_raw & 0x7FFF) * 0.02 - 273.15, 2
