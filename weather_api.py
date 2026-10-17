@@ -24,7 +24,8 @@ from mysql_sync import SYNC_INTERVAL_SECONDS, sync_pending
 from nano_poll import collect_nano
 
 BME280_ADDRESS = 0x76
-I2C_BUS = 1
+I2C_BUS = 1  # Hardware I2C: BME280
+MLX_I2C_BUS = 3  # Software i2c-gpio: SDA=GPIO23, SCL=GPIO24
 LIGHT_GPIO = 17
 MLX90614_ADDRESS = 0x5A
 MLX90614_AMBIENT_TEMP_REGISTER = 0x06
@@ -111,6 +112,7 @@ def calculate_sea_level_pressure(pressure_hpa, temperature_c):
 
 async def collect_weather():
     bus = None
+    mlx_bus = None
     calibration = None
     light = None
     temperature_history = deque(maxlen=TEMP_AVERAGE_SAMPLES)
@@ -127,11 +129,17 @@ async def collect_weather():
 
         while True:
             # Retry I2C bus and BME280 calibration on subsequent sample cycles.
-            if (READ_BME or READ_MLX_1) and bus is None:
+            if READ_BME and bus is None:
                 try:
                     bus = smbus2.SMBus(I2C_BUS)
                 except Exception as exc:
                     print(f"I2C initialization error: {exc}", flush=True)
+
+            if READ_MLX_1 and mlx_bus is None:
+                try:
+                    mlx_bus = smbus2.SMBus(MLX_I2C_BUS)
+                except Exception as exc:
+                    print(f"MLX I2C initialization error: {exc}", flush=True)
 
             if READ_BME and bus is not None and calibration is None:
                 try:
@@ -187,13 +195,13 @@ async def collect_weather():
 
             if READ_MLX_1:
                 try:
-                    if bus is None:
-                        raise RuntimeError("I2C bus unavailable")
+                    if mlx_bus is None:
+                        raise RuntimeError("MLX software I2C bus unavailable")
 
-                    ambient_raw = bus.read_word_data(
+                    ambient_raw = mlx_bus.read_word_data(
                         MLX90614_ADDRESS, MLX90614_AMBIENT_TEMP_REGISTER
                     )
-                    raw = bus.read_word_data(
+                    raw = mlx_bus.read_word_data(
                         MLX90614_ADDRESS, MLX90614_OBJECT_TEMP_REGISTER
                     )
                     if ambient_raw & 0x8000:
@@ -215,15 +223,19 @@ async def collect_weather():
                     latest["status"]["mlx90614_1"] = "error"
                     print(f"MLX90614 read error: {exc}", flush=True)
 
-            # Reopen the bus after an I/O failure instead of requiring
-            # a container restart. Calibration is reloaded with the new bus.
-            if bus is not None and (
-                (READ_BME and latest["status"]["bme280"] == "error" and calibration is not None)
-                or (READ_MLX_1 and latest["status"]["mlx90614_1"] == "error")
+            # Recover each I2C bus independently after a read failure.
+            if bus is not None and READ_BME and (
+                latest["status"]["bme280"] == "error"
             ):
                 bus.close()
                 bus = None
                 calibration = None
+
+            if mlx_bus is not None and READ_MLX_1 and (
+                latest["status"]["mlx90614_1"] == "error"
+            ):
+                mlx_bus.close()
+                mlx_bus = None
 
             if READ_LIGHT:
                 if light is not None:
@@ -279,6 +291,8 @@ async def collect_weather():
             await asyncio.sleep(SAMPLE_INTERVAL)
 
     finally:
+        if mlx_bus is not None:
+            mlx_bus.close()
         if bus is not None:
             bus.close()
 
