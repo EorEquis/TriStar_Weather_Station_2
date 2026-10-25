@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from mysql_sync import SYNC_INTERVAL_SECONDS, sync_pending
 from nano_poll import collect_nano
+from system_metrics import HostSystemMetrics
 
 BME280_ADDRESS = 0x76
 I2C_BUS = 1
@@ -54,6 +55,8 @@ SENSORS = {
     "rainbucket": READ_RAINBUCKET,
 }
 
+system_metrics = HostSystemMetrics()
+
 latest = {
     "timestamp": None,
     "bme_temp_c": None,
@@ -77,6 +80,7 @@ latest = {
     "wind_gust_10min": None,
     "wind_gust_hour": None,
     "wind_gust_today": None,
+    "system": system_metrics.empty(),
     "status": {
         "system": "unavailable",
         **{
@@ -247,7 +251,8 @@ async def collect_weather():
             else:
                 latest["status"]["system"] = "error"
 
-            snapshot = {**latest, "status": latest["status"].copy()}
+            latest["system"] = await asyncio.to_thread(system_metrics.collect)
+            snapshot = {**latest, "status": latest["status"].copy(), "system": latest["system"].copy()}
             try:
                 await asyncio.to_thread(save_observation, snapshot)
             except Exception as exc:
