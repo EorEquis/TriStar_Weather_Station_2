@@ -30,6 +30,7 @@ MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
 TEMP_AVERAGE_SAMPLES = 10
+I2C_RETRY_DELAY_SECONDS = 0.1
 
 load_dotenv()
 
@@ -111,6 +112,29 @@ def calculate_sea_level_pressure(pressure_hpa, temperature_c):
     ) ** exponent
 
 
+async def read_i2c_with_retry(read):
+    """Retry a failed sensor transaction once, after 100 ms."""
+    try:
+        return read()
+    except Exception:
+        await asyncio.sleep(I2C_RETRY_DELAY_SECONDS)
+        return read()
+
+
+def read_mlx90614(bus):
+    ambient_raw = bus.read_word_data(
+        MLX90614_ADDRESS, MLX90614_AMBIENT_TEMP_REGISTER
+    )
+    raw = bus.read_word_data(
+        MLX90614_ADDRESS, MLX90614_OBJECT_TEMP_REGISTER
+    )
+    if ambient_raw & 0x8000:
+        raise ValueError("MLX90614 ambient read flagged invalid")
+    if raw & 0x8000:
+        raise ValueError("MLX90614 temperature read flagged invalid")
+    return ambient_raw, raw
+
+
 async def collect_weather():
     bus = None
     calibration = None
@@ -141,8 +165,8 @@ async def collect_weather():
             if READ_BME:
                 if bus is not None and calibration is not None:
                     try:
-                        reading = bme280.sample(
-                            bus, BME280_ADDRESS, calibration
+                        reading = await read_i2c_with_retry(
+                            lambda: bme280.sample(bus, BME280_ADDRESS, calibration)
                         )
 
                         latest["bme_temp_c"] = round(
@@ -182,16 +206,9 @@ async def collect_weather():
                     if bus is None:
                         raise RuntimeError("I2C bus unavailable")
 
-                    ambient_raw = bus.read_word_data(
-                        MLX90614_ADDRESS, MLX90614_AMBIENT_TEMP_REGISTER
+                    ambient_raw, raw = await read_i2c_with_retry(
+                        lambda: read_mlx90614(bus)
                     )
-                    raw = bus.read_word_data(
-                        MLX90614_ADDRESS, MLX90614_OBJECT_TEMP_REGISTER
-                    )
-                    if ambient_raw & 0x8000:
-                        raise ValueError("MLX90614 ambient read flagged invalid")
-                    if raw & 0x8000:
-                        raise ValueError("MLX90614 temperature read flagged invalid")
 
                     latest["mlx_temp_c"] = round(
                         (ambient_raw & 0x7FFF) * 0.02 - 273.15, 2
