@@ -71,7 +71,7 @@ latest = {
     "ground_temperature_c": None,
     "wind_speed_mps": None,
     "wind_dir_deg": None,
-    "rain_amount_mm": None,
+    "rain_rate_mm_hr": None,
     "rain_hourly_mm": None,
     "rain_daily_mm": None,
     "wind_gust_10min": None,
