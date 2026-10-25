@@ -9,9 +9,12 @@
 """Local SQLite schema for weather observations and sensor statuses."""
 
 import sqlite3
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 DATABASE_PATH = Path(__file__).resolve().parent / "data" / "weather.sqlite3"
+STATION_TIMEZONE = ZoneInfo("America/Chicago")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
@@ -32,7 +35,7 @@ CREATE TABLE IF NOT EXISTS observations (
     ground_temperature_c REAL,
     wind_speed_mps REAL,
     wind_dir_deg REAL,
-    rain_amount_mm REAL,
+    rain_rate_mm_hr REAL,
     rain_hourly_mm REAL,
     rain_daily_mm REAL,
     wind_gust_10min REAL,
@@ -45,6 +48,14 @@ CREATE TABLE IF NOT EXISTS observations (
     future_obs_5 REAL,
     synced INTEGER NOT NULL DEFAULT 0 CHECK (synced IN (0, 1))
 );
+
+CREATE TABLE IF NOT EXISTS rain_tip_samples (
+    sample_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    tips INTEGER NOT NULL CHECK (tips > 0)
+);
+CREATE INDEX IF NOT EXISTS rain_tip_samples_timestamp_idx
+    ON rain_tip_samples(timestamp);
 
 CREATE TABLE IF NOT EXISTS status (
     status_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,6 +93,14 @@ def initialize_database(path=DATABASE_PATH):
     path.parent.mkdir(parents=True, exist_ok=True)
     with connect_database(path) as connection:
         connection.executescript(SCHEMA)
+        # Preserve existing observation rows when upgrading the schema.
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(observations)")
+        }
+        if "rain_amount_mm" in columns and "rain_rate_mm_hr" not in columns:
+            connection.execute(
+                "ALTER TABLE observations RENAME COLUMN rain_amount_mm TO rain_rate_mm_hr"
+            )
     return path
 
 
@@ -90,7 +109,7 @@ OBSERVATION_FIELDS = (
     "humidity_pct", "pressure_hpa", "pressure_sealevel_hpa",
     "dew_point_c", "is_dark", "light_value", "is_wet", "wet_value",
     "sky_temperature_c", "ground_temperature_c", "wind_speed_mps",
-    "wind_dir_deg", "rain_amount_mm", "rain_hourly_mm",
+    "wind_dir_deg", "rain_rate_mm_hr", "rain_hourly_mm",
     "rain_daily_mm", "wind_gust_10min", "wind_gust_hour",
     "wind_gust_today",
 )
@@ -118,6 +137,41 @@ def save_observation(reading, path=DATABASE_PATH):
             f"INSERT INTO status (observation_id, {', '.join(STATUS_FIELDS)}) "
             f"VALUES (?, {', '.join('?' for _ in STATUS_FIELDS)})",
             [cursor.lastrowid, *status_values],
+        )
+
+
+def rain_history_cutoff(now):
+    """Retain samples from the earlier of local midnight and 60 minutes ago."""
+    midnight = now.astimezone(STATION_TIMEZONE).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ).astimezone(timezone.utc)
+    return min(midnight, now - timedelta(hours=1))
+
+
+def load_rain_samples(path=DATABASE_PATH):
+    """Recover tip history relevant to today's and rolling rainfall totals."""
+    now = datetime.now(timezone.utc)
+    cutoff = rain_history_cutoff(now).isoformat()
+    with connect_database(path) as connection:
+        rows = connection.execute(
+            "SELECT timestamp, tips FROM rain_tip_samples "
+            "WHERE timestamp >= ? ORDER BY timestamp, sample_id", (cutoff,)
+        ).fetchall()
+    return [(datetime.fromisoformat(stamp), tips) for stamp, tips in rows]
+
+
+def save_rain_sample(timestamp, tips, path=DATABASE_PATH):
+    """Durably store each nonzero Nano tip count before reporting it."""
+    if tips <= 0:
+        raise ValueError("Rain sample must contain positive tips")
+    cutoff = rain_history_cutoff(timestamp).isoformat()
+    with connect_database(path) as connection:
+        connection.execute(
+            "INSERT INTO rain_tip_samples (timestamp, tips) VALUES (?, ?)",
+            (timestamp.isoformat(), tips),
+        )
+        connection.execute(
+            "DELETE FROM rain_tip_samples WHERE timestamp < ?", (cutoff,)
         )
 
 
