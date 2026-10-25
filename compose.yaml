@@ -15,6 +15,10 @@ services:
 
     volumes:
       - ./data:/app/data
+      # Read-only host metrics sources
+      - /proc:/host/proc:ro
+      - /sys/class/thermal:/host/thermal:ro
+      - /:/host/root:ro
 
     environment:
       - GPIOZERO_PIN_FACTORY=lgpio
