@@ -12,7 +12,7 @@ The original Arduino weather station has retired from active duty, somewhat invo
 - Polls the Arduino Nano over **9600-baud UART** approximately every **1 second**.
 - Publishes the current combined reading at **`GET /api/weather/current`** on port **8000**.
 - Stores five-second snapshots and per-sensor statuses in a local **SQLite** database.
-- Synchronizes unsent observations to **MySQL** approximately every **300 seconds** (5 minutes).
+- Synchronizes unsent observations to **MySQL** every **`MYSQL_SYNC_INTERVAL_SECONDS` seconds** (default 300 / 5 minutes).
 - Retains synchronized local observations for roughly **24 hours**, while keeping unsynchronized observations until they can be transferred.
 - Reports each enabled sensor as `available` or `error`, and disabled sensors as `unavailable`.
 
@@ -25,13 +25,13 @@ The original Arduino weather station has retired from active duty, somewhat invo
  ┌──────────────────────┐                 ┌───────────────────────────┐
  │ Anemometer reed      │                 │ BME280 (I²C)              │
  │ Rain bucket reed     │                 │ MLX90614 #1 (I²C)         │
- │ Wind vane resistor   │                 │ LM393 light digital GPIO  │
+ │ Wind vane resistor   │                 │ I²C environmental sensors │
  └──────────┬───────────┘                 └─────────────┬─────────────┘
             │                                           │
  ┌──────────▼───────────┐                               │
  │ Arduino Nano         │   UART 9600                   │
  │ - counts pulses      ├───────────────────┐           │
- │ - reads analog       │                   │           │
+ │ - reads light analog │                   │           │
  │ - classifies vane    │                   │           │
  │ - switches rain plate│                   │           │
  └──────────────────────┘                   │           │
@@ -45,7 +45,7 @@ The original Arduino weather station has retired from active duty, somewhat invo
                             │                  │                   │
                      GET /api/weather/     SQLite             MySQL
                          current        weather.sqlite3   weather_station_v2
-                        port 8000       every 5 seconds   every ~5 minutes
+                        port 8000       every 5 seconds   configurable interval
                             │
                      Observatory UI
 ```
@@ -60,11 +60,28 @@ The Nano does not independently broadcast weather readings. The Pi sends `READ\n
 | Arduino Nano (ATmega328P) | Pulse counting and analog acquisition | `arduino/wxstation_nano/wxstation_nano.ino` |
 | BME280 | Temperature, humidity, station pressure | I²C bus 1, address `0x76` |
 | MLX90614 #1 | Ambient and sky/object IR temperature | I²C bus 1, address `0x5A` |
-| LM393 light sensor | Digital dark/light input; analog level from Nano | Pi GPIO17 and Nano A1 |
+| LM393 light sensor | Digital dark/light input and analog level | Nano D6 (digital) and A3 (analog) |
 | SparkFun anemometer | Reed-switch pulses | Nano D2 / interrupt |
 | SparkFun rain bucket | Reed-switch tips | Nano D3 / interrupt |
 | SparkFun wind vane | Resistor ladder / direction | Nano A0 |
 | LM393 rain detection plate | Digital wet state and analog level | Nano D5 and A2; switched power on D4 |
+
+### Sensor pin assignments
+
+The Nano assignments below are taken from the working `arduino/wxstation_nano/wxstation_nano.ino` sketch. They identify signal pins; sensor power and ground connections (except the switched rain-plate supply) are not specified by the sketch.
+
+| Device / signal | Connection | Notes |
+|---|---|---|
+| Anemometer reed switch | Nano D2 | Interrupt, internal pull-up |
+| Rain bucket reed switch | Nano D3 | Interrupt, internal pull-up |
+| Wind vane analog | Nano A0 | Resistor ladder |
+| LM393 light analog | Nano A3 | Raw ADC reading |
+| LM393 light digital | Nano D6 | `is_dark` from digital reading |
+| LM393 rain-plate power control | Nano D4 | Output HIGH during measurement, LOW otherwise |
+| LM393 rain-plate digital | Nano D5 | Wet/dry digital input |
+| LM393 rain-plate analog | Nano A2 | Raw ADC reading |
+| BME280 | Pi I²C bus 1, `0x76` | SDA/SCL, power, ground |
+| MLX90614 #1 | Pi I²C bus 1, `0x5A` | SDA/SCL, power, ground |
 
 ### Pi ↔ Nano UART wiring
 
@@ -110,6 +127,7 @@ Example Nano response (illustrative values):
   "rain_bucket_tips": 0,
   "wind_direction_deg": 225.0,
   "light_analog": 512,
+  "light_digital": 1,
   "rain_sensor_digital": 1,
   "rain_sensor_analog": 800
 }
@@ -121,10 +139,11 @@ The Pi validates the expected fields and uses their values to update the current
 
 | File | Responsibility |
 |---|---|
-| `weather_api.py` | FastAPI application, I²C/GPIO sampling, calculated environmental readings, status aggregation, background tasks |
+| `weather_api.py` | FastAPI application, I²C sampling, calculated environmental readings, status aggregation, background tasks |
 | `nano_poll.py` | UART polling, wind speed, gust windows, rain totals, Nano sensor statuses |
 | `database.py` | SQLite schema, initialization, atomic observation/status writes |
 | `mysql_sync.py` | Retry-safe transfer from SQLite to MySQL and local retention cleanup |
+| `system_metrics.py` | Pi host CPU, memory, disk and uptime measurements using read-only mounts |
 | `arduino/wxstation_nano/wxstation_nano.ino` | Nano firmware for pulses, wind vane, light and rain-plate readings |
 | `compose.yaml` | Docker service, port, device mappings, data volume, environment |
 | `Dockerfile` | Python 3.13 container image and dependencies |
@@ -162,6 +181,7 @@ The file requires real values for MySQL connection settings and **`STATION_ELEVA
 | `MYSQL_DATABASE` | Database name; existing deployment uses `weather_station_v2` |
 | `MYSQL_USER` | MySQL login |
 | `MYSQL_PASSWORD` | MySQL password |
+| `MYSQL_SYNC_INTERVAL_SECONDS` | Seconds between MySQL sync runs; positive finite number, default `300` |
 | `STATION_ELEVATION` | Station elevation in **meters**, used for sea-level pressure correction |
 | `READ_BME` | Enable BME280 |
 | `READ_LIGHT` | Enable LM393 light processing |
@@ -174,28 +194,28 @@ The file requires real values for MySQL connection settings and **`STATION_ELEVA
 
 Sensor flags are interpreted as `true` or `false` (case-insensitive after whitespace trimming). Disabled channels remain `unavailable` in the status object. **Enabling a flag does not magically install a sensor.** This is software, not a replicator.
 
-`READ_LIGHT` currently enables **two** paths: digital GPIO light state (`is_dark`) and Nano analog light level (`light_value`). They share the `lm393_light` status key. Keep this in mind when diagnosing that status; it reflects a shared implementation rather than independent per-interface statuses.
+`READ_LIGHT` enables both Nano digital light state (`is_dark`, D6) and Nano analog light level (`light_value`, A3). They share the `lm393_light` status key.
 
 ### Build and run
 
 From the repository directory:
 
 ```bash
-docker compose up -d --build
+sudo docker compose up -d --build
 ```
 
 Useful operational commands:
 
 ```bash
-docker compose ps
-docker compose logs -f weather
-docker compose restart weather
-docker compose down
+sudo docker compose ps
+sudo docker compose logs -f weather
+sudo docker compose restart weather
+sudo docker compose down
 ```
 
-The service is named `weather`, with container name **`tristar-weather`**, and uses Docker's `unless-stopped` restart policy. Host port **8000** maps to container port **8000**. Compose passes through `/dev/i2c-1`, `/dev/serial0`, and `/dev/gpiochip0`, and mounts `./data` at `/app/data`.
+The service is named `weather`, with container name **`tristar-weather`**, and uses Docker's `unless-stopped` restart policy. Host port **8000** maps to container port **8000**. Compose passes through `/dev/i2c-1`, `/dev/serial0`, and `/dev/gpiochip0`, and mounts `./data` at `/app/data`. Read-only host-metrics mounts are `/proc:/host/proc:ro`, `/sys/devices/virtual/thermal:/host/thermal:ro`, and `/:/host/root:ro`.
 
-**Rebuild vs restart:** `docker compose restart weather` restarts the existing container; it does not rebuild an image after Python source or dependency changes. Use `docker compose up -d --build` when deploying code changes.
+**Rebuild vs restart:** `sudo docker compose restart weather` restarts the existing container; it does not rebuild an image after Python source or dependency changes. Use `sudo docker compose up -d --build` when deploying code changes.
 
 ### Check the API
 
@@ -225,7 +245,7 @@ The following is an **illustrative shape**, not a recorded measurement or a clai
 {
   "timestamp": "2026-10-16T19:30:00+00:00",
   "bme_temp_c": 22.4,
-  "temp_c": 22.1,
+  "temp_c": 22.4,
   "mlx_temp_c": 21.8,
   "humidity_pct": 54.2,
   "pressure_hpa": 972.4,
@@ -239,12 +259,20 @@ The following is an **illustrative shape**, not a recorded measurement or a clai
   "ground_temperature_c": null,
   "wind_speed_mps": 1.2,
   "wind_dir_deg": 225.0,
-  "rain_amount_mm": 0.0,
+  "rain_rate_mm_hr": 0.0,
   "rain_hourly_mm": 0.0,
   "rain_daily_mm": 0.0,
   "wind_gust_10min": 2.3,
   "wind_gust_hour": 3.1,
   "wind_gust_today": 4.0,
+  "system": {
+    "cpu_temp_c": 52.09,
+    "cpu_usage_pct": 0.89,
+    "memory_usage_pct": 10.22,
+    "disk_usage_pct": 7.09,
+    "host_uptime_seconds": 1652,
+    "container_uptime_seconds": 20
+  },
   "status": {
     "system": "available",
     "bme280": "available",
@@ -266,25 +294,26 @@ The following is an **illustrative shape**, not a recorded measurement or a clai
 | `timestamp` | ISO-8601 UTC timestamp | Pi sampling loop |
 | `bme_temp_c` | °C; BME280 temperature | BME280 |
 | `mlx_temp_c` | °C; MLX90614 ambient temperature | MLX90614 #1 |
-| `temp_c` | °C; rolling mean of up to 10 valid samples of the **average of BME280 and MLX ambient temperatures** | Pi calculation |
+| `temp_c` | °C; BME280 temperature, copied from `bme_temp_c` (null if unavailable) | BME280 |
 | `humidity_pct` | Relative humidity, % | BME280 |
 | `pressure_hpa` | Station pressure, hPa | BME280 |
 | `pressure_sealevel_hpa` | Temperature-adjusted sea-level pressure, hPa | Pi calculation; requires station elevation |
 | `dew_point_c` | Dew point, °C | Pi calculation from BME temperature and RH |
-| `is_dark` | Boolean; digital LM393 light output (`true` for HIGH) | Pi GPIO17 |
-| `light_value` | Raw analog ADC value, 0–1023 | Nano A1 |
+| `is_dark` | Boolean; digital LM393 light output (`true` for HIGH) | Nano D6 |
+| `light_value` | Raw analog ADC value, 0–1023 | Nano A3 |
 | `is_wet` | Boolean; `true` when Nano rain digital input reads LOW | Nano D5 |
 | `wet_value` | Raw rain-plate ADC value, 0–1023 | Nano A2 |
 | `sky_temperature_c` | °C; MLX90614 object/sky temperature | MLX90614 #1 |
 | `ground_temperature_c` | Reserved; currently not populated | — |
 | `wind_speed_mps` | m/s; calculated from anemometer pulses and actual poll interval | Nano/Pi |
 | `wind_dir_deg` | Degrees, 0 ≤ direction < 360 | Nano wind vane |
-| `rain_amount_mm` | mm from tips received in the **most recent Nano poll** | Nano/Pi |
+| `rain_rate_mm_hr` | mm/hour; rainfall accumulated over the rolling last 10 minutes, multiplied by 6 | Nano/Pi |
 | `rain_hourly_mm` | mm; rolling last hour | Pi calculation |
 | `rain_daily_mm` | mm; since local midnight | Pi calculation |
 | `wind_gust_10min` | m/s; highest computed three-second average in last 10 minutes | Pi calculation |
 | `wind_gust_hour` | m/s; highest computed three-second average in last hour | Pi calculation |
 | `wind_gust_today` | m/s; highest computed three-second average since local midnight | Pi calculation |
+| `system` | Pi host CPU temperature (°C), CPU/memory/disk usage (%), host uptime (seconds), and container uptime (seconds); individual metrics can be null | Pi host metrics |
 | `status` | Per-sensor and overall availability object | Pi |
 
 The code uses **`America/Chicago`** for the local-day boundaries of `rain_daily_mm` and `wind_gust_today`. Timestamps themselves are UTC. The three-second gust value is a weighted average over recent poll intervals once roughly 2.5 seconds of data have accumulated; the reported gust fields are the maxima of those computed averages, **not** instantaneous peak gusts.
@@ -330,7 +359,7 @@ The schema includes `future_obs_1` through `future_obs_5` and `future_device_1` 
 
 ### MySQL
 
-`mysql_sync.py` connects using the configured `MYSQL_*` environment variables. Every ~5 minutes it drains pending local rows in batches of up to **1,000** until the backlog is caught up.
+`mysql_sync.py` connects using the configured `MYSQL_*` environment variables. Every configured sync interval (default 300 seconds) it drains pending local rows in batches of up to **1,000** until the backlog is caught up.
 
 The sync process:
 
@@ -360,15 +389,15 @@ The station also does not offer an HTTP historical-data API. For historical anal
 Check the container and logs:
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 weather
+sudo docker compose ps
+sudo docker compose logs --tail=100 weather
 ```
 
 Verify that port 8000 is mapped and that `.env` includes a numeric `STATION_ELEVATION`. A running container with sensor errors may still serve the API; check `status` before assuming every `null` is an application crash.
 
 ### BME280 or MLX90614 reads fail
 
-The Pi uses I²C bus **1**. Verify the physical bus, power, wiring, and configured addresses (`0x76` for BME280 and `0x5A` for MLX90614 #1). The service retries I²C initialization and BME calibration in later sample cycles; it can close and reopen the bus after sensor errors.
+The Pi uses I²C bus **1**. A failed BME280 or MLX90614 read is retried once after 100 ms, independently per sensor; a second failure follows the normal sensor error handling. Verify the physical bus, power, wiring, and configured addresses (`0x76` for BME280 and `0x5A` for MLX90614 #1). The service retries I²C initialization and BME calibration in later sample cycles; it can close and reopen the bus after sensor errors.
 
 Useful host-side check if I²C tools are installed:
 
@@ -410,7 +439,7 @@ sqlite3 data/weather.sqlite3 'SELECT observation_id, timestamp, synced FROM obse
 
 ### Light status seems inconsistent
 
-`READ_LIGHT` drives both a Pi GPIO digital read and a Nano analog read, but both paths write to the **same** `lm393_light` status. The current implementation does not expose separate status flags for the two acquisition methods. Compare `is_dark`, `light_value`, and the logs before concluding which interface failed.
+`READ_LIGHT` drives both a Nano D6 digital read and a Nano A3 analog read, but both share the **same** `lm393_light` status. The implementation does not expose separate status flags for these two readings. Compare `is_dark`, `light_value`, and the logs before concluding which input failed.
 
 ### `null` doesn't always mean broken
 
