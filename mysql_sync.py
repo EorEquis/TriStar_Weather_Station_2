@@ -36,12 +36,8 @@ STATUS_COLUMNS = (
     "future_device_4", "future_device_5",
 )
 
-# MySQL currently has the legacy rain_amount_mm column. Map the new
-# rolling rain rate there until the remote schema is migrated separately.
 MYSQL_OBSERVATION_COLUMNS = tuple(
-    "obs_timestamp" if column == "timestamp"
-    else "rain_amount_mm" if column == "rain_rate_mm_hr"
-    else column
+    "obs_timestamp" if column == "timestamp" else column
     for column in OBSERVATION_COLUMNS
 ) + ("synced",)
 MYSQL_STATUS_COLUMNS = tuple(
