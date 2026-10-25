@@ -15,9 +15,19 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from database import DATABASE_PATH, connect_database
+from dotenv import load_dotenv
 
 BATCH_SIZE = 1000
-SYNC_INTERVAL_SECONDS = 300
+load_dotenv()
+
+def sync_interval_seconds():
+    value = float(os.getenv("MYSQL_SYNC_INTERVAL_SECONDS", "300"))
+    if not (0 < value < float("inf")):
+        raise ValueError("MYSQL_SYNC_INTERVAL_SECONDS must be a positive finite number")
+    return value
+
+
+SYNC_INTERVAL_SECONDS = sync_interval_seconds()
 
 # Explicit column lists preserve the existing SQLite/MySQL name mappings.
 OBSERVATION_COLUMNS = (
