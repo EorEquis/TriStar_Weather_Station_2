@@ -19,13 +19,11 @@ from database import initialize_database, save_observation
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI
-from gpiozero import DigitalInputDevice
 from mysql_sync import SYNC_INTERVAL_SECONDS, sync_pending
 from nano_poll import collect_nano
 
 BME280_ADDRESS = 0x76
 I2C_BUS = 1
-LIGHT_GPIO = 17
 MLX90614_ADDRESS = 0x5A
 MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
@@ -112,19 +110,9 @@ def calculate_sea_level_pressure(pressure_hpa, temperature_c):
 async def collect_weather():
     bus = None
     calibration = None
-    light = None
     temperature_history = deque(maxlen=TEMP_AVERAGE_SAMPLES)
 
     try:
-        if READ_LIGHT:
-            try:
-                light = DigitalInputDevice(
-                    LIGHT_GPIO, pull_up=False
-                )
-            except Exception as exc:
-                latest["status"]["lm393_light"] = "error"
-                print(f"LM393 light initialization error: {exc}", flush=True)
-
         while True:
             # Retry I2C bus and BME280 calibration on subsequent sample cycles.
             if (READ_BME or READ_MLX_1) and bus is None:
@@ -225,17 +213,6 @@ async def collect_weather():
                 bus = None
                 calibration = None
 
-            if READ_LIGHT:
-                if light is not None:
-                    try:
-                        latest["is_dark"] = bool(light.value)
-                        latest["status"]["lm393_light"] = "available"
-
-                    except Exception as exc:
-                        latest["is_dark"] = None
-                        latest["status"]["lm393_light"] = "error"
-                        print(f"LM393 light read error: {exc}", flush=True)
-
             if (
                 latest["status"]["bme280"] == "available"
                 and latest["status"]["mlx90614_1"] == "available"
@@ -282,8 +259,6 @@ async def collect_weather():
         if bus is not None:
             bus.close()
 
-        if light is not None:
-            light.close()
 
 
 @asynccontextmanager

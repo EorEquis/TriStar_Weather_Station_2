@@ -52,7 +52,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     # Opening a serial port starts a fresh measurement interval.
                     last_poll = time.monotonic()
                 (
-                    pulses, tips, direction, light_analog,
+                    pulses, tips, direction, light_analog, light_digital,
                     rain_digital, rain_analog,
                 ) = await asyncio.to_thread(poll_once, port)
                 now = time.monotonic()
@@ -65,6 +65,9 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                 if light_enabled:
                     if not 0 <= light_analog <= 1023:
                         raise ValueError(f"Invalid light ADC reading: {light_analog}")
+                    if light_digital not in (0, 1):
+                        raise ValueError(f"Invalid light digital reading: {light_digital}")
+                    latest["is_dark"] = bool(light_digital)
                     latest["light_value"] = light_analog
                     latest["status"]["lm393_light"] = "available"
                 if rain_sensor_enabled:
@@ -118,6 +121,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                     if active:
                         latest["status"][name] = "error"
                 if light_enabled:
+                    latest["is_dark"] = None
                     latest["light_value"] = None
                     latest["status"]["lm393_light"] = "error"
                 if rain_sensor_enabled:
@@ -184,6 +188,7 @@ def poll_once(port):
         int(payload["rain_bucket_tips"]),
         float(payload["wind_direction_deg"]),
         int(payload["light_analog"]),
+        int(payload["light_digital"]),
         int(payload["rain_sensor_digital"]),
         int(payload["rain_sensor_analog"]),
     )

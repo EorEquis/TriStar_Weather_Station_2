@@ -2,7 +2,8 @@
 const byte anemometerPin = 2;
 const byte rainBucketPin = 3;
 const byte windVanePin = A0;
-const byte lightAnalogPin = A1;
+const byte lightAnalogPin = A3;
+const byte lightDigitalPin = 6;
 
 // LM393 rain detection plate
 const byte rainSensorPowerPin = 4;
@@ -102,6 +103,7 @@ void setup() {
   pinMode(rainBucketPin, INPUT_PULLUP);
   pinMode(windVanePin, INPUT);
   pinMode(lightAnalogPin, INPUT);
+  pinMode(lightDigitalPin, INPUT);
 
   attachInterrupt(
     digitalPinToInterrupt(anemometerPin),
@@ -198,6 +200,7 @@ void sendReadings() {
   int adc = analogRead(windVanePin);
   float direction = getWindDirection(adc);
   int lightAnalog = analogRead(lightAnalogPin);
+  int lightDigital = digitalRead(lightDigitalPin);
 
   // Power rain sensor only while sampling
   digitalWrite(rainSensorPowerPin, HIGH);
@@ -221,6 +224,9 @@ void sendReadings() {
 
   Serial.print(",\"light_analog\":");
   Serial.print(lightAnalog);
+
+  Serial.print(",\"light_digital\":");
+  Serial.print(lightDigital);
 
   Serial.print(",\"rain_sensor_digital\":");
   Serial.print(rainDigital);
