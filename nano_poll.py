@@ -16,9 +16,11 @@ import time
 
 from collections import deque
 from datetime import datetime, timedelta, timezone
+from database import load_rain_samples, save_rain_sample
 from zoneinfo import ZoneInfo
 
 RAIN_MM_PER_TIP = 0.2794
+RAIN_RATE_WINDOW = timedelta(minutes=10)
 STATION_TIMEZONE = ZoneInfo("America/Chicago")
 WIND_MPS_PER_HZ = 1.492 * 0.44704
 
@@ -40,7 +42,8 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
     last_poll = None
     wind_samples = deque()  # (monotonic timestamp, speed, elapsed)
     gust_samples = deque()  # (UTC datetime, 3-second average)
-    rain_samples = deque()  # (UTC datetime, bucket tips)
+    # Restore all still-relevant tip counts before the first Nano poll.
+    rain_samples = deque(await asyncio.to_thread(load_rain_samples)) if rain_enabled else deque()
     try:
         while True:
             cycle_start = time.monotonic()
@@ -101,8 +104,11 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                 if rain_enabled:
                     if tips < 0:
                         raise ValueError("Negative rain tip count")
-                    rain_samples.append((utc_now, tips))
-                    latest["rain_amount_mm"] = round(tips * RAIN_MM_PER_TIP, 4)
+                    # Persist before adding to in-memory totals; a failed write
+                    # must not silently produce a non-durable accumulation.
+                    if tips:
+                        await asyncio.to_thread(save_rain_sample, utc_now, tips)
+                        rain_samples.append((utc_now, tips))
                     latest["status"]["rainbucket"] = "available"
             except asyncio.CancelledError:
                 raise
@@ -132,7 +138,7 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                 if direction_enabled:
                     latest["wind_dir_deg"] = None
                 if rain_enabled:
-                    latest["rain_amount_mm"] = None
+                    latest["rain_rate_mm_hr"] = None
             # Advance reporting windows even when the Nano cannot be read.
             utc_now = datetime.now(timezone.utc)
             local_midnight = utc_now.astimezone(STATION_TIMEZONE).replace(
@@ -155,20 +161,28 @@ async def collect_nano(latest, enabled, port_name="/dev/serial0"):
                 cutoff = min(utc_now - timedelta(hours=1), local_midnight)
                 while rain_samples and rain_samples[0][0] < cutoff:
                     rain_samples.popleft()
-                hourly = [
+                rate_tips = sum(
+                    count for stamp, count in rain_samples
+                    if stamp >= utc_now - RAIN_RATE_WINDOW
+                )
+                hourly_tips = sum(
                     count for stamp, count in rain_samples
                     if stamp >= utc_now - timedelta(hours=1)
-                ]
-                daily = [
+                )
+                daily_tips = sum(
                     count for stamp, count in rain_samples
                     if stamp >= local_midnight
-                ]
-                # A successful zero-tip reading is still a valid measurement.
-                latest["rain_hourly_mm"] = (
-                    round(sum(hourly) * RAIN_MM_PER_TIP, 4) if hourly else None
                 )
-                latest["rain_daily_mm"] = (
-                    round(sum(daily) * RAIN_MM_PER_TIP, 4) if daily else None
+                # The rate is a 10-minute rolling accumulation expressed
+                # as mm/hour; zero is valid even with no recent tips.
+                latest["rain_rate_mm_hr"] = round(
+                    rate_tips * RAIN_MM_PER_TIP * 6, 4
+                )
+                latest["rain_hourly_mm"] = round(
+                    hourly_tips * RAIN_MM_PER_TIP, 4
+                )
+                latest["rain_daily_mm"] = round(
+                    daily_tips * RAIN_MM_PER_TIP, 4
                 )
             await asyncio.sleep(max(0, 1 - (time.monotonic() - cycle_start)))
     finally:
