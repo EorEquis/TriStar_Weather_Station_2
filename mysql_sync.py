@@ -24,7 +24,7 @@ OBSERVATION_COLUMNS = (
     "observation_id", "timestamp", "bme_temp_c", "temp_c", "mlx_temp_c",
     "humidity_pct", "pressure_hpa", "pressure_sealevel_hpa", "dew_point_c",
     "is_dark", "light_value", "is_wet", "wet_value", "sky_temperature_c",
-    "ground_temperature_c", "wind_speed_mps", "wind_dir_deg", "rain_amount_mm",
+    "ground_temperature_c", "wind_speed_mps", "wind_dir_deg", "rain_rate_mm_hr",
     "rain_hourly_mm", "rain_daily_mm", "wind_gust_10min", "wind_gust_hour",
     "wind_gust_today", "future_obs_1", "future_obs_2", "future_obs_3",
     "future_obs_4", "future_obs_5",
@@ -36,8 +36,12 @@ STATUS_COLUMNS = (
     "future_device_4", "future_device_5",
 )
 
+# MySQL currently has the legacy rain_amount_mm column. Map the new
+# rolling rain rate there until the remote schema is migrated separately.
 MYSQL_OBSERVATION_COLUMNS = tuple(
-    "obs_timestamp" if column == "timestamp" else column
+    "obs_timestamp" if column == "timestamp"
+    else "rain_amount_mm" if column == "rain_rate_mm_hr"
+    else column
     for column in OBSERVATION_COLUMNS
 ) + ("synced",)
 MYSQL_STATUS_COLUMNS = tuple(
