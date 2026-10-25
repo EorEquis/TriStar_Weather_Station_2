@@ -17,7 +17,7 @@ services:
       - ./data:/app/data
       # Read-only host metrics sources
       - /proc:/host/proc:ro
-      - /sys/class/thermal:/host/thermal:ro
+      - /sys/devices/virtual/thermal:/host/thermal:ro
       - /:/host/root:ro
 
     environment:
