@@ -13,7 +13,6 @@ import os
 import smbus2
 import uvicorn
 
-from collections import deque
 from contextlib import asynccontextmanager, suppress
 from database import initialize_database, save_observation
 from datetime import datetime, timezone
@@ -29,7 +28,6 @@ MLX90614_ADDRESS = 0x5A
 MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
-TEMP_AVERAGE_SAMPLES = 10
 I2C_RETRY_DELAY_SECONDS = 0.1
 
 load_dotenv()
@@ -138,7 +136,6 @@ def read_mlx90614(bus):
 async def collect_weather():
     bus = None
     calibration = None
-    temperature_history = deque(maxlen=TEMP_AVERAGE_SAMPLES)
 
     try:
         while True:
@@ -234,20 +231,7 @@ async def collect_weather():
                 bus = None
                 calibration = None
 
-            if (
-                latest["status"]["bme280"] == "available"
-                and latest["status"]["mlx90614_1"] == "available"
-                and latest["bme_temp_c"] is not None
-                and latest["mlx_temp_c"] is not None
-            ):
-                temperature_history.append(
-                    (latest["bme_temp_c"] + latest["mlx_temp_c"]) / 2
-                )
-
-            latest["temp_c"] = (
-                round(sum(temperature_history) / len(temperature_history), 2)
-                if temperature_history else None
-            )
+            latest["temp_c"] = latest["bme_temp_c"]
 
             for name, enabled in SENSORS.items():
                 if not enabled:
