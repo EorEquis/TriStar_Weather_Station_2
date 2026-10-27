@@ -64,6 +64,9 @@ ALLSKY_HUMIDITY_RED_PCT = float(os.getenv("ALLSKY_HUMIDITY_RED_PCT", "80"))
 ALLSKY_RAIN_YELLOW_MM_HR = float(os.getenv("ALLSKY_RAIN_YELLOW_MM_HR", "0"))
 ALLSKY_RAIN_RED_MM_HR = float(os.getenv("ALLSKY_RAIN_RED_MM_HR", "2"))
 
+ALLSKY_RAIN_DAILY_BLUE_MM = float(os.getenv("ALLSKY_RAIN_DAILY_BLUE_MM", "0"))
+ALLSKY_RAIN_DAILY_RED_MM = float(os.getenv("ALLSKY_RAIN_DAILY_RED_MM", "5"))
+
 SENSORS = {
     "bme280": READ_BME,
     "lm393_light": READ_LIGHT,
@@ -391,6 +394,19 @@ def allsky_weather():
         f"{pressure * 0.0295299830714:.2f} inHg"
         if pressure is not None and math.isfinite(pressure) else None,
     )
+    daily = latest["rain_daily_mm"]
+    if daily is None or not math.isfinite(daily):
+        result["rain_daily_mm"] = overlay_item("Daily Rainfall", None)
+    else:
+        if daily <= ALLSKY_RAIN_DAILY_BLUE_MM:
+            daily_color = "#00FF00"
+        elif daily <= ALLSKY_RAIN_DAILY_RED_MM:
+            daily_color = "#0000FF"
+        else:
+            daily_color = "#FF0000"
+        result["rain_daily_mm"] = overlay_item(
+            "Daily Rainfall", f"{daily:.2f} mm", daily_color
+        )
     return result
 
 
