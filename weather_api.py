@@ -43,6 +43,19 @@ READ_RAINBUCKET = os.getenv("READ_RAINBUCKET", "false").strip().lower() == "true
 READ_RAIN_SENSOR = os.getenv("READ_RAIN_SENSOR", "false").strip().lower() == "true"
 READ_WINDVANE = os.getenv("READ_WINDVANE", "false").strip().lower() == "true"
 
+# Allsky overlay temperature color thresholds (degrees Celsius).
+ALLSKY_TEMP_COLD_C = float(os.getenv("ALLSKY_TEMP_COLD_C", "10"))
+ALLSKY_TEMP_WARM_C = float(os.getenv("ALLSKY_TEMP_WARM_C", "25"))
+ALLSKY_TEMP_HOT_C = float(os.getenv("ALLSKY_TEMP_HOT_C", "32"))
+
+if not (
+    math.isfinite(ALLSKY_TEMP_COLD_C)
+    and math.isfinite(ALLSKY_TEMP_WARM_C)
+    and math.isfinite(ALLSKY_TEMP_HOT_C)
+    and ALLSKY_TEMP_COLD_C < ALLSKY_TEMP_WARM_C < ALLSKY_TEMP_HOT_C
+):
+    raise ValueError("Allsky temperature thresholds must be finite and strictly increasing")
+
 SENSORS = {
     "bme280": READ_BME,
     "lm393_light": READ_LIGHT,
@@ -310,6 +323,25 @@ app.add_api_route(
     lambda: latest,
     methods=["GET"]
 )
+
+
+@app.get("/api/weather/allsky")
+def allsky_weather():
+    """Minimal overlay-friendly temperature payload."""
+    temperature = latest["temp_c"]
+    if temperature is None or not math.isfinite(temperature):
+        return {"temp_c": None, "temp_c_color": None}
+
+    if temperature <= ALLSKY_TEMP_COLD_C:
+        color = "#0000FF"  # blue
+    elif temperature < ALLSKY_TEMP_WARM_C:
+        color = "#00FF00"  # green
+    elif temperature < ALLSKY_TEMP_HOT_C:
+        color = "#FFFF00"  # yellow
+    else:
+        color = "#FF0000"  # red
+
+    return {"temp_c": f"{temperature:.2f}", "temp_c_color": color}
 
 
 if __name__ == "__main__":
