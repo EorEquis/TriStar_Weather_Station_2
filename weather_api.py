@@ -56,6 +56,14 @@ if not (
 ):
     raise ValueError("Allsky temperature thresholds must be finite and strictly increasing")
 
+
+ALLSKY_DEWPOINT_YELLOW_C = float(os.getenv("ALLSKY_DEWPOINT_YELLOW_C", "16"))
+ALLSKY_DEWPOINT_RED_C = float(os.getenv("ALLSKY_DEWPOINT_RED_C", "21"))
+ALLSKY_HUMIDITY_YELLOW_PCT = float(os.getenv("ALLSKY_HUMIDITY_YELLOW_PCT", "60"))
+ALLSKY_HUMIDITY_RED_PCT = float(os.getenv("ALLSKY_HUMIDITY_RED_PCT", "80"))
+ALLSKY_RAIN_YELLOW_MM_HR = float(os.getenv("ALLSKY_RAIN_YELLOW_MM_HR", "0"))
+ALLSKY_RAIN_RED_MM_HR = float(os.getenv("ALLSKY_RAIN_RED_MM_HR", "2"))
+
 SENSORS = {
     "bme280": READ_BME,
     "lm393_light": READ_LIGHT,
@@ -325,39 +333,65 @@ app.add_api_route(
 )
 
 
+def overlay_item(label, value, color="#FFFFFF"):
+    return {
+        "description": label,
+        "type": "string",
+        "value": {"value": value, "fill": color if value is not None else None, "expires": 0},
+    }
+
+
+def traffic_color(value, yellow, red):
+    if value >= red:
+        return "#FF0000"
+    if value >= yellow:
+        return "#FFFF00"
+    return "#00FF00"
+
+
 @app.get("/api/weather/allsky")
 def allsky_weather():
-    """Minimal overlay-friendly temperature payload."""
-    temperature = latest["temp_c"]
-    if temperature is None or not math.isfinite(temperature):
-        return {
-            "temp_c": {
-                "description": "Temperature °C",
-                "type": "string",
-                "value": {"value": None, "fill": None, "expires": 0},
-            },
-        }
-
-    if temperature <= ALLSKY_TEMP_COLD_C:
-        color = "#0000FF"  # blue
-    elif temperature < ALLSKY_TEMP_WARM_C:
-        color = "#00FF00"  # green
-    elif temperature < ALLSKY_TEMP_HOT_C:
-        color = "#FFFF00"  # yellow
+    """Return display-formatted weather readings for the Allsky overlay."""
+    result = {}
+    temp = latest["temp_c"]
+    if temp is None or not math.isfinite(temp):
+        result["temp_c"] = overlay_item("Temperature °C", None)
     else:
-        color = "#FF0000"  # red
+        if temp <= ALLSKY_TEMP_COLD_C:
+            color = "#0000FF"
+        elif temp < ALLSKY_TEMP_WARM_C:
+            color = "#00FF00"
+        elif temp < ALLSKY_TEMP_HOT_C:
+            color = "#FFFF00"
+        else:
+            color = "#FF0000"
+        result["temp_c"] = overlay_item("Temperature °C", f"{temp:.1f}° C", color)
 
-    return {
-        "temp_c": {
-            "description": "Temperature °C",
-            "type": "string",
-            "value": {
-                "value": f"{temperature:.1f}° C",
-                "fill": color,
-                "expires": 0,
-            },
-        },
-    }
+    readings = (
+        ("dew_point_c", "Dew Point", "{:.2f}°C",
+         ALLSKY_DEWPOINT_YELLOW_C, ALLSKY_DEWPOINT_RED_C),
+        ("humidity_pct", "Humidity", "{:.0f}%",
+         ALLSKY_HUMIDITY_YELLOW_PCT, ALLSKY_HUMIDITY_RED_PCT),
+        ("rain_rate_mm_hr", "Rain Rate", "{:.2f} mm/hr",
+         ALLSKY_RAIN_YELLOW_MM_HR, ALLSKY_RAIN_RED_MM_HR),
+    )
+    for key, label, fmt, yellow, red in readings:
+        reading = latest[key]
+        if reading is None or not math.isfinite(reading):
+            result[key] = overlay_item(label, None)
+        else:
+            color = traffic_color(reading, yellow, red)
+            if key == "rain_rate_mm_hr" and reading <= yellow:
+                color = "#00FF00"
+            result[key] = overlay_item(label, fmt.format(reading), color)
+
+    pressure = latest["pressure_hpa"]
+    result["pressure_hpa"] = overlay_item(
+        "Station Pressure",
+        f"{pressure * 0.0295299830714:.2f} inHg"
+        if pressure is not None and math.isfinite(pressure) else None,
+    )
+    return result
 
 
 if __name__ == "__main__":
