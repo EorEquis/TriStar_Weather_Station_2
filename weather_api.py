@@ -67,6 +67,11 @@ ALLSKY_RAIN_RED_MM_HR = float(os.getenv("ALLSKY_RAIN_RED_MM_HR", "2"))
 ALLSKY_RAIN_DAILY_BLUE_MM = float(os.getenv("ALLSKY_RAIN_DAILY_BLUE_MM", "0"))
 ALLSKY_RAIN_DAILY_RED_MM = float(os.getenv("ALLSKY_RAIN_DAILY_RED_MM", "5"))
 
+ALLSKY_WIND_YELLOW_MPS = float(os.getenv("ALLSKY_WIND_YELLOW_MPS", "5"))
+ALLSKY_WIND_RED_MPS = float(os.getenv("ALLSKY_WIND_RED_MPS", "10"))
+ALLSKY_GUST_YELLOW_MPS = float(os.getenv("ALLSKY_GUST_YELLOW_MPS", "8"))
+ALLSKY_GUST_RED_MPS = float(os.getenv("ALLSKY_GUST_RED_MPS", "15"))
+
 SENSORS = {
     "bme280": READ_BME,
     "lm393_light": READ_LIGHT,
@@ -407,6 +412,30 @@ def allsky_weather():
         result["rain_daily_mm"] = overlay_item(
             "Daily Rainfall", f"{daily:.2f} mm", daily_color
         )
+    wind_values = (
+        ("wind_speed_mps", "Wind Speed", ALLSKY_WIND_YELLOW_MPS, ALLSKY_WIND_RED_MPS),
+        ("wind_gust_hour", "Hourly Wind Gust", ALLSKY_GUST_YELLOW_MPS, ALLSKY_GUST_RED_MPS),
+        ("wind_gust_today", "Daily Wind Gust", ALLSKY_GUST_YELLOW_MPS, ALLSKY_GUST_RED_MPS),
+    )
+    for key, label, yellow, red in wind_values:
+        speed = latest[key]
+        if speed is None or not math.isfinite(speed):
+            result[key] = overlay_item(label, None)
+        else:
+            result[key] = overlay_item(
+                label, f"{speed:.2f} m/s", traffic_color(speed, yellow, red)
+            )
+
+    direction = latest["wind_dir_deg"]
+    if direction is None or not math.isfinite(direction):
+        result["wind_dir_deg"] = overlay_item("Wind Direction", None)
+    else:
+        compass = (
+            "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+            "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
+        )
+        index = int((direction % 360 + 11.25) // 22.5) % 16
+        result["wind_dir_deg"] = overlay_item("Wind Direction", compass[index])
     return result
 
 
