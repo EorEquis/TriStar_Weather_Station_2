@@ -333,7 +333,7 @@ def allsky_weather():
         return {
             "temp_c": {
                 "description": "Temperature °C",
-                "type": "number",
+                "type": "string",
                 "value": {"value": None, "fill": None, "expires": 0},
             },
         }
@@ -350,9 +350,9 @@ def allsky_weather():
     return {
         "temp_c": {
             "description": "Temperature °C",
-            "type": "number",
+            "type": "string",
             "value": {
-                "value": f"{temperature:.2f}",
+                "value": f"{temperature:.1f}° C",
                 "fill": color,
                 "expires": 0,
             },
