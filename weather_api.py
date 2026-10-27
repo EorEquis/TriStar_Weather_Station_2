@@ -330,7 +330,13 @@ def allsky_weather():
     """Minimal overlay-friendly temperature payload."""
     temperature = latest["temp_c"]
     if temperature is None or not math.isfinite(temperature):
-        return {"temp_c": None, "temp_c_color": None}
+        return {
+            "temp_c": {
+                "description": "Temperature °C",
+                "type": "number",
+                "value": {"value": None, "fill": None, "expires": 0},
+            },
+        }
 
     if temperature <= ALLSKY_TEMP_COLD_C:
         color = "#0000FF"  # blue
@@ -341,7 +347,17 @@ def allsky_weather():
     else:
         color = "#FF0000"  # red
 
-    return {"temp_c": f"{temperature:.2f}", "temp_c_color": color}
+    return {
+        "temp_c": {
+            "description": "Temperature °C",
+            "type": "number",
+            "value": {
+                "value": f"{temperature:.2f}",
+                "fill": color,
+                "expires": 0,
+            },
+        },
+    }
 
 
 if __name__ == "__main__":
