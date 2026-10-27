@@ -43,6 +43,35 @@ READ_RAINBUCKET = os.getenv("READ_RAINBUCKET", "false").strip().lower() == "true
 READ_RAIN_SENSOR = os.getenv("READ_RAIN_SENSOR", "false").strip().lower() == "true"
 READ_WINDVANE = os.getenv("READ_WINDVANE", "false").strip().lower() == "true"
 
+# Allsky overlay temperature color thresholds (degrees Celsius).
+ALLSKY_TEMP_COLD_C = float(os.getenv("ALLSKY_TEMP_COLD_C", "10"))
+ALLSKY_TEMP_WARM_C = float(os.getenv("ALLSKY_TEMP_WARM_C", "25"))
+ALLSKY_TEMP_HOT_C = float(os.getenv("ALLSKY_TEMP_HOT_C", "32"))
+
+if not (
+    math.isfinite(ALLSKY_TEMP_COLD_C)
+    and math.isfinite(ALLSKY_TEMP_WARM_C)
+    and math.isfinite(ALLSKY_TEMP_HOT_C)
+    and ALLSKY_TEMP_COLD_C < ALLSKY_TEMP_WARM_C < ALLSKY_TEMP_HOT_C
+):
+    raise ValueError("Allsky temperature thresholds must be finite and strictly increasing")
+
+
+ALLSKY_DEWPOINT_YELLOW_C = float(os.getenv("ALLSKY_DEWPOINT_YELLOW_C", "16"))
+ALLSKY_DEWPOINT_RED_C = float(os.getenv("ALLSKY_DEWPOINT_RED_C", "21"))
+ALLSKY_HUMIDITY_YELLOW_PCT = float(os.getenv("ALLSKY_HUMIDITY_YELLOW_PCT", "60"))
+ALLSKY_HUMIDITY_RED_PCT = float(os.getenv("ALLSKY_HUMIDITY_RED_PCT", "80"))
+ALLSKY_RAIN_YELLOW_MM_HR = float(os.getenv("ALLSKY_RAIN_YELLOW_MM_HR", "0"))
+ALLSKY_RAIN_RED_MM_HR = float(os.getenv("ALLSKY_RAIN_RED_MM_HR", "2"))
+
+ALLSKY_RAIN_DAILY_BLUE_MM = float(os.getenv("ALLSKY_RAIN_DAILY_BLUE_MM", "0"))
+ALLSKY_RAIN_DAILY_RED_MM = float(os.getenv("ALLSKY_RAIN_DAILY_RED_MM", "5"))
+
+ALLSKY_WIND_YELLOW_MPS = float(os.getenv("ALLSKY_WIND_YELLOW_MPS", "5"))
+ALLSKY_WIND_RED_MPS = float(os.getenv("ALLSKY_WIND_RED_MPS", "10"))
+ALLSKY_GUST_YELLOW_MPS = float(os.getenv("ALLSKY_GUST_YELLOW_MPS", "8"))
+ALLSKY_GUST_RED_MPS = float(os.getenv("ALLSKY_GUST_RED_MPS", "15"))
+
 SENSORS = {
     "bme280": READ_BME,
     "lm393_light": READ_LIGHT,
@@ -310,6 +339,104 @@ app.add_api_route(
     lambda: latest,
     methods=["GET"]
 )
+
+
+def overlay_item(label, value, color="#FFFFFF"):
+    return {
+        "description": label,
+        "type": "string",
+        "value": {"value": value, "fill": color if value is not None else None, "expires": 0},
+    }
+
+
+def traffic_color(value, yellow, red):
+    if value >= red:
+        return "#FF0000"
+    if value >= yellow:
+        return "#FFFF00"
+    return "#00FF00"
+
+
+@app.get("/api/weather/allsky")
+def allsky_weather():
+    """Return display-formatted weather readings for the Allsky overlay."""
+    result = {}
+    temp = latest["temp_c"]
+    if temp is None or not math.isfinite(temp):
+        result["temp_c"] = overlay_item("Temperature °C", None)
+    else:
+        if temp <= ALLSKY_TEMP_COLD_C:
+            color = "#0000FF"
+        elif temp < ALLSKY_TEMP_WARM_C:
+            color = "#00FF00"
+        elif temp < ALLSKY_TEMP_HOT_C:
+            color = "#FFFF00"
+        else:
+            color = "#FF0000"
+        result["temp_c"] = overlay_item("Temperature °C", f"{temp:.1f}° C", color)
+
+    readings = (
+        ("dew_point_c", "Dew Point", "{:.2f}°C",
+         ALLSKY_DEWPOINT_YELLOW_C, ALLSKY_DEWPOINT_RED_C),
+        ("humidity_pct", "Humidity", "{:.0f}%",
+         ALLSKY_HUMIDITY_YELLOW_PCT, ALLSKY_HUMIDITY_RED_PCT),
+        ("rain_rate_mm_hr", "Rain Rate", "{:.2f} mm/hr",
+         ALLSKY_RAIN_YELLOW_MM_HR, ALLSKY_RAIN_RED_MM_HR),
+    )
+    for key, label, fmt, yellow, red in readings:
+        reading = latest[key]
+        if reading is None or not math.isfinite(reading):
+            result[key] = overlay_item(label, None)
+        else:
+            color = traffic_color(reading, yellow, red)
+            if key == "rain_rate_mm_hr" and reading <= yellow:
+                color = "#00FF00"
+            result[key] = overlay_item(label, fmt.format(reading), color)
+
+    pressure = latest["pressure_hpa"]
+    result["pressure_hpa"] = overlay_item(
+        "Station Pressure",
+        f"{pressure * 0.0295299830714:.2f} inHg"
+        if pressure is not None and math.isfinite(pressure) else None,
+    )
+    daily = latest["rain_daily_mm"]
+    if daily is None or not math.isfinite(daily):
+        result["rain_daily_mm"] = overlay_item("Daily Rainfall", None)
+    else:
+        if daily <= ALLSKY_RAIN_DAILY_BLUE_MM:
+            daily_color = "#00FF00"
+        elif daily <= ALLSKY_RAIN_DAILY_RED_MM:
+            daily_color = "#0000FF"
+        else:
+            daily_color = "#FF0000"
+        result["rain_daily_mm"] = overlay_item(
+            "Daily Rainfall", f"{daily:.2f} mm", daily_color
+        )
+    wind_values = (
+        ("wind_speed_mps", "Wind Speed", ALLSKY_WIND_YELLOW_MPS, ALLSKY_WIND_RED_MPS),
+        ("wind_gust_hour", "Hourly Wind Gust", ALLSKY_GUST_YELLOW_MPS, ALLSKY_GUST_RED_MPS),
+        ("wind_gust_today", "Daily Wind Gust", ALLSKY_GUST_YELLOW_MPS, ALLSKY_GUST_RED_MPS),
+    )
+    for key, label, yellow, red in wind_values:
+        speed = latest[key]
+        if speed is None or not math.isfinite(speed):
+            result[key] = overlay_item(label, None)
+        else:
+            result[key] = overlay_item(
+                label, f"{speed:.2f} m/s", traffic_color(speed, yellow, red)
+            )
+
+    direction = latest["wind_dir_deg"]
+    if direction is None or not math.isfinite(direction):
+        result["wind_dir_deg"] = overlay_item("Wind Direction", None)
+    else:
+        compass = (
+            "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+            "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
+        )
+        index = int((direction % 360 + 11.25) // 22.5) % 16
+        result["wind_dir_deg"] = overlay_item("Wind Direction", compass[index])
+    return result
 
 
 if __name__ == "__main__":
