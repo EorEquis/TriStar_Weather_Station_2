@@ -24,7 +24,8 @@ from system_metrics import HostSystemMetrics
 
 BME280_ADDRESS = 0x76
 I2C_BUS = 1
-MLX90614_ADDRESS = 0x5A
+MLX90614_1_ADDRESS = 0x5A
+MLX90614_2_ADDRESS = 0x5B
 MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
@@ -89,7 +90,8 @@ latest = {
     "timestamp": None,
     "bme_temp_c": None,
     "temp_c": None,
-    "mlx_temp_c": None,
+    "mlx1_temp_c": None,
+    "mlx2_temp_c": None,
     "humidity_pct": None,
     "pressure_hpa": None,
     "pressure_sealevel_hpa": None,
@@ -148,12 +150,12 @@ async def read_i2c_with_retry(read):
         return read()
 
 
-def read_mlx90614(bus):
+def read_mlx90614(bus, address):
     ambient_raw = bus.read_word_data(
-        MLX90614_ADDRESS, MLX90614_AMBIENT_TEMP_REGISTER
+        address, MLX90614_AMBIENT_TEMP_REGISTER
     )
     raw = bus.read_word_data(
-        MLX90614_ADDRESS, MLX90614_OBJECT_TEMP_REGISTER
+        address, MLX90614_OBJECT_TEMP_REGISTER
     )
     if ambient_raw & 0x8000:
         raise ValueError("MLX90614 ambient read flagged invalid")
@@ -169,7 +171,7 @@ async def collect_weather():
     try:
         while True:
             # Retry I2C bus and BME280 calibration on subsequent sample cycles.
-            if (READ_BME or READ_MLX_1) and bus is None:
+            if (READ_BME or READ_MLX_1 or READ_MLX_2) and bus is None:
                 try:
                     bus = smbus2.SMBus(I2C_BUS)
                 except Exception as exc:
@@ -233,10 +235,10 @@ async def collect_weather():
                         raise RuntimeError("I2C bus unavailable")
 
                     ambient_raw, raw = await read_i2c_with_retry(
-                        lambda: read_mlx90614(bus)
+                        lambda: read_mlx90614(bus, MLX90614_1_ADDRESS)
                     )
 
-                    latest["mlx_temp_c"] = round(
+                    latest["mlx1_temp_c"] = round(
                         (ambient_raw & 0x7FFF) * 0.02 - 273.15, 2
                     )
                     latest["sky_temperature_c"] = round(
@@ -245,16 +247,40 @@ async def collect_weather():
                     latest["status"]["mlx90614_1"] = "available"
 
                 except Exception as exc:
-                    latest["mlx_temp_c"] = None
+                    latest["mlx1_temp_c"] = None
                     latest["sky_temperature_c"] = None
                     latest["status"]["mlx90614_1"] = "error"
                     print(f"MLX90614 read error: {exc}", flush=True)
+
+            if READ_MLX_2:
+                try:
+                    if bus is None:
+                        raise RuntimeError("I2C bus unavailable")
+
+                    ambient_raw, raw = await read_i2c_with_retry(
+                        lambda: read_mlx90614(bus, MLX90614_2_ADDRESS)
+                    )
+
+                    latest["mlx2_temp_c"] = round(
+                        (ambient_raw & 0x7FFF) * 0.02 - 273.15, 2
+                    )
+                    latest["ground_temperature_c"] = round(
+                        (raw & 0x7FFF) * 0.02 - 273.15, 2
+                    )
+                    latest["status"]["mlx90614_2"] = "available"
+
+                except Exception as exc:
+                    latest["mlx2_temp_c"] = None
+                    latest["ground_temperature_c"] = None
+                    latest["status"]["mlx90614_2"] = "error"
+                    print(f"MLX90614 #2 read error: {exc}", flush=True)
 
             # Reopen the bus after an I/O failure instead of requiring
             # a container restart. Calibration is reloaded with the new bus.
             if bus is not None and (
                 (READ_BME and latest["status"]["bme280"] == "error" and calibration is not None)
                 or (READ_MLX_1 and latest["status"]["mlx90614_1"] == "error")
+                or (READ_MLX_2 and latest["status"]["mlx90614_2"] == "error")
             ):
                 bus.close()
                 bus = None
@@ -374,6 +400,16 @@ def allsky_weather():
         else:
             color = "#FF0000"
         result["temp_c"] = overlay_item("Temperature °C", f"{temp:.1f}° C", color)
+
+    for output_key, source_key, label in (
+        ("sky_temp_c", "sky_temperature_c", "Sky Temperature"),
+        ("ground_temp_c", "ground_temperature_c", "Ground Temperature"),
+    ):
+        reading = latest[source_key]
+        result[output_key] = overlay_item(
+            label,
+            f"{reading:.1f}° C" if reading is not None and math.isfinite(reading) else None,
+        )
 
     readings = (
         ("dew_point_c", "Dew Point", "{:.2f}°C",
