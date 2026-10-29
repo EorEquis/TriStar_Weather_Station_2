@@ -119,7 +119,7 @@ OBSERVATION_FIELDS = (
     "sky_temperature_c", "ground_temperature_c", "wind_speed_mps",
     "wind_dir_deg", "rain_rate_mm_hr", "rain_hourly_mm",
     "rain_daily_mm", "wind_gust_10min", "wind_gust_hour",
-    "wind_gust_today",
+    "wind_gust_today", "mlx2_temp_c",
 )
 
 STATUS_FIELDS = (
