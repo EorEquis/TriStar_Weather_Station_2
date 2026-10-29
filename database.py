@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS observations (
     timestamp TEXT NOT NULL,
     bme_temp_c REAL,
     temp_c REAL,
-    mlx_temp_c REAL,
+    mlx1_temp_c REAL,
     humidity_pct REAL,
     pressure_hpa REAL,
     pressure_sealevel_hpa REAL,
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS observations (
     wind_gust_10min REAL,
     wind_gust_hour REAL,
     wind_gust_today REAL,
-    future_obs_1 REAL,
+    mlx2_temp_c REAL,
     future_obs_2 REAL,
     future_obs_3 REAL,
     future_obs_4 REAL,
@@ -97,6 +97,14 @@ def initialize_database(path=DATABASE_PATH):
         columns = {
             row[1] for row in connection.execute("PRAGMA table_info(observations)")
         }
+        if "mlx_temp_c" in columns and "mlx1_temp_c" not in columns:
+            connection.execute(
+                "ALTER TABLE observations RENAME COLUMN mlx_temp_c TO mlx1_temp_c"
+            )
+        if "future_obs_1" in columns and "mlx2_temp_c" not in columns:
+            connection.execute(
+                "ALTER TABLE observations RENAME COLUMN future_obs_1 TO mlx2_temp_c"
+            )
         if "rain_amount_mm" in columns and "rain_rate_mm_hr" not in columns:
             connection.execute(
                 "ALTER TABLE observations RENAME COLUMN rain_amount_mm TO rain_rate_mm_hr"
@@ -105,7 +113,7 @@ def initialize_database(path=DATABASE_PATH):
 
 
 OBSERVATION_FIELDS = (
-    "timestamp", "bme_temp_c", "temp_c", "mlx_temp_c",
+    "timestamp", "bme_temp_c", "temp_c", "mlx1_temp_c",
     "humidity_pct", "pressure_hpa", "pressure_sealevel_hpa",
     "dew_point_c", "is_dark", "light_value", "is_wet", "wet_value",
     "sky_temperature_c", "ground_temperature_c", "wind_speed_mps",
