@@ -90,7 +90,7 @@ latest = {
     "timestamp": None,
     "bme_temp_c": None,
     "temp_c": None,
-    "mlx_temp_c": None,
+    "mlx1_temp_c": None,
     "mlx2_temp_c": None,
     "humidity_pct": None,
     "pressure_hpa": None,
@@ -238,7 +238,7 @@ async def collect_weather():
                         lambda: read_mlx90614(bus, MLX90614_1_ADDRESS)
                     )
 
-                    latest["mlx_temp_c"] = round(
+                    latest["mlx1_temp_c"] = round(
                         (ambient_raw & 0x7FFF) * 0.02 - 273.15, 2
                     )
                     latest["sky_temperature_c"] = round(
@@ -247,7 +247,7 @@ async def collect_weather():
                     latest["status"]["mlx90614_1"] = "available"
 
                 except Exception as exc:
-                    latest["mlx_temp_c"] = None
+                    latest["mlx1_temp_c"] = None
                     latest["sky_temperature_c"] = None
                     latest["status"]["mlx90614_1"] = "error"
                     print(f"MLX90614 read error: {exc}", flush=True)
