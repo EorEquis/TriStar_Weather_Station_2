@@ -401,6 +401,16 @@ def allsky_weather():
             color = "#FF0000"
         result["temp_c"] = overlay_item("Temperature °C", f"{temp:.1f}° C", color)
 
+    for output_key, source_key, label in (
+        ("sky_temp_c", "sky_temperature_c", "Sky Temperature"),
+        ("ground_temp_c", "ground_temperature_c", "Ground Temperature"),
+    ):
+        reading = latest[source_key]
+        result[output_key] = overlay_item(
+            label,
+            f"{reading:.1f}° C" if reading is not None and math.isfinite(reading) else None,
+        )
+
     readings = (
         ("dew_point_c", "Dew Point", "{:.2f}°C",
          ALLSKY_DEWPOINT_YELLOW_C, ALLSKY_DEWPOINT_RED_C),
