@@ -26,7 +26,6 @@ BME280_ADDRESS = 0x76
 I2C_BUS = 1
 MLX90614_1_ADDRESS = 0x5A
 MLX90614_2_ADDRESS = 0x5B
-MLX90614_AMBIENT_TEMP_REGISTER = 0x06
 MLX90614_OBJECT_TEMP_REGISTER = 0x07
 SAMPLE_INTERVAL = 5
 I2C_RETRY_DELAY_SECONDS = 0.1
@@ -151,17 +150,10 @@ async def read_i2c_with_retry(read):
 
 
 def read_mlx90614(bus, address):
-    ambient_raw = bus.read_word_data(
-        address, MLX90614_AMBIENT_TEMP_REGISTER
-    )
-    raw = bus.read_word_data(
-        address, MLX90614_OBJECT_TEMP_REGISTER
-    )
-    if ambient_raw & 0x8000:
-        raise ValueError("MLX90614 ambient read flagged invalid")
+    raw = bus.read_word_data(address, MLX90614_OBJECT_TEMP_REGISTER)
     if raw & 0x8000:
         raise ValueError("MLX90614 temperature read flagged invalid")
-    return ambient_raw, raw
+    return raw
 
 
 async def collect_weather():
@@ -234,13 +226,10 @@ async def collect_weather():
                     if bus is None:
                         raise RuntimeError("I2C bus unavailable")
 
-                    ambient_raw, raw = await read_i2c_with_retry(
+                    raw = await read_i2c_with_retry(
                         lambda: read_mlx90614(bus, MLX90614_1_ADDRESS)
                     )
 
-                    latest["mlx1_temp_c"] = round(
-                        (ambient_raw & 0x7FFF) * 0.02 - 273.15, 2
-                    )
                     latest["sky_temperature_c"] = round(
                         (raw & 0x7FFF) * 0.02 - 273.15, 2
                     )
@@ -257,13 +246,10 @@ async def collect_weather():
                     if bus is None:
                         raise RuntimeError("I2C bus unavailable")
 
-                    ambient_raw, raw = await read_i2c_with_retry(
+                    raw = await read_i2c_with_retry(
                         lambda: read_mlx90614(bus, MLX90614_2_ADDRESS)
                     )
 
-                    latest["mlx2_temp_c"] = round(
-                        (ambient_raw & 0x7FFF) * 0.02 - 273.15, 2
-                    )
                     latest["ground_temperature_c"] = round(
                         (raw & 0x7FFF) * 0.02 - 273.15, 2
                     )
