@@ -43,6 +43,32 @@ READ_RAINBUCKET = os.getenv("READ_RAINBUCKET", "false").strip().lower() == "true
 READ_RAIN_SENSOR = os.getenv("READ_RAIN_SENSOR", "false").strip().lower() == "true"
 READ_WINDVANE = os.getenv("READ_WINDVANE", "false").strip().lower() == "true"
 
+# Lunatico CloudWatcher sky correction coefficients and positive-delta thresholds.
+ALLSKY_CLOUD_K1 = float(os.getenv("ALLSKY_CLOUD_K1", "58"))
+ALLSKY_CLOUD_K2 = float(os.getenv("ALLSKY_CLOUD_K2", "-54"))
+ALLSKY_CLOUD_K3 = float(os.getenv("ALLSKY_CLOUD_K3", "0"))
+ALLSKY_CLOUD_K4 = float(os.getenv("ALLSKY_CLOUD_K4", "93"))
+ALLSKY_CLOUD_K5 = float(os.getenv("ALLSKY_CLOUD_K5", "92"))
+ALLSKY_CLOUD_K6 = float(os.getenv("ALLSKY_CLOUD_K6", "25"))
+ALLSKY_CLOUD_K7 = float(os.getenv("ALLSKY_CLOUD_K7", "3"))
+ALLSKY_CLOUD_CLEAR_DELTA_C = float(os.getenv("ALLSKY_CLOUD_CLEAR_DELTA_C", "18"))
+ALLSKY_CLOUD_LIGHT_DELTA_C = float(os.getenv("ALLSKY_CLOUD_LIGHT_DELTA_C", "16"))
+ALLSKY_CLOUD_OVERCAST_DELTA_C = float(os.getenv("ALLSKY_CLOUD_OVERCAST_DELTA_C", "12"))
+
+if not (
+    all(math.isfinite(k) for k in (
+        ALLSKY_CLOUD_K1, ALLSKY_CLOUD_K2, ALLSKY_CLOUD_K3,
+        ALLSKY_CLOUD_K4, ALLSKY_CLOUD_K5, ALLSKY_CLOUD_K6, ALLSKY_CLOUD_K7,
+    ))
+    and all(math.isfinite(t) for t in (
+        ALLSKY_CLOUD_CLEAR_DELTA_C, ALLSKY_CLOUD_LIGHT_DELTA_C,
+        ALLSKY_CLOUD_OVERCAST_DELTA_C,
+    ))
+    and ALLSKY_CLOUD_OVERCAST_DELTA_C < ALLSKY_CLOUD_LIGHT_DELTA_C < ALLSKY_CLOUD_CLEAR_DELTA_C
+):
+    raise ValueError("Allsky cloud coefficients must be finite and thresholds strictly increasing")
+
+
 # Allsky overlay temperature color thresholds (degrees Celsius).
 ALLSKY_TEMP_COLD_C = float(os.getenv("ALLSKY_TEMP_COLD_C", "10"))
 ALLSKY_TEMP_WARM_C = float(os.getenv("ALLSKY_TEMP_WARM_C", "25"))
@@ -353,6 +379,50 @@ app.add_api_route(
 )
 
 
+def cloud_condition(ambient_c, sky_c):
+    """Classify the positive corrected sky/ambient delta using Lunatico's model."""
+    if (
+        ambient_c is None or sky_c is None
+        or not math.isfinite(ambient_c) or not math.isfinite(sky_c)
+    ):
+        return None
+
+    pivot = ALLSKY_CLOUD_K2 / 10
+    difference = ambient_c - pivot
+    magnitude = abs(difference)
+    sign = (difference > 0) - (difference < 0)
+    k6_sign = (ALLSKY_CLOUD_K6 > 0) - (ALLSKY_CLOUD_K6 < 0)
+
+    if magnitude < 1:
+        t67 = k6_sign * sign * magnitude
+    else:
+        t67 = (ALLSKY_CLOUD_K6 / 10) * sign * (
+            math.log10(magnitude) + ALLSKY_CLOUD_K7 / 100
+        )
+
+    try:
+        correction = (
+            (ALLSKY_CLOUD_K1 / 100) * difference
+            + (ALLSKY_CLOUD_K3 / 100) * math.exp(
+                ALLSKY_CLOUD_K4 / 1000 * ambient_c * (ALLSKY_CLOUD_K5 / 100)
+            )
+            + t67
+        )
+        delta = correction - sky_c
+    except (OverflowError, ValueError):
+        return None
+
+    if not math.isfinite(delta):
+        return None
+    if delta >= ALLSKY_CLOUD_CLEAR_DELTA_C:
+        return "Clear"
+    if delta >= ALLSKY_CLOUD_LIGHT_DELTA_C:
+        return "Light Clouds"
+    if delta > ALLSKY_CLOUD_OVERCAST_DELTA_C:
+        return "Cloudy"
+    return "Overcast"
+
+
 def overlay_item(label, value, color="#FFFFFF"):
     return {
         "description": label,
@@ -373,6 +443,11 @@ def traffic_color(value, yellow, red):
 def allsky_weather():
     """Return display-formatted weather readings for the Allsky overlay."""
     result = {}
+    condition = cloud_condition(latest["bme_temp_c"], latest["sky_temperature_c"])
+    cloud_color = {"Clear": "#00FF00", "Light Clouds": "#FFFF00", "Cloudy": "#FF0000", "Overcast": "#FF0000"}
+    result["skytemp_cloud_condition"] = overlay_item(
+        "Sky Cloud Condition", condition, cloud_color.get(condition, "#FFFFFF")
+    )
     temp = latest["temp_c"]
     if temp is None or not math.isfinite(temp):
         result["temp_c"] = overlay_item("Temperature °C", None)
