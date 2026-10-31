@@ -444,7 +444,7 @@ def allsky_weather():
     """Return display-formatted weather readings for the Allsky overlay."""
     result = {}
     condition = cloud_condition(latest["bme_temp_c"], latest["sky_temperature_c"])
-    cloud_color = {"clear": "#00FF00", "light clouds": "#FFFF00", "cloudy": "#FF0000", "overcast": "#FF0000"}
+    cloud_color = {"Clear": "#00FF00", "Light Clouds": "#FFFF00", "Cloudy": "#FF0000", "Overcast": "#FF0000"}
     result["skytemp_cloud_condition"] = overlay_item(
         "Sky Cloud Condition", condition, cloud_color.get(condition, "#FFFFFF")
     )
