@@ -415,12 +415,12 @@ def cloud_condition(ambient_c, sky_c):
     if not math.isfinite(delta):
         return None
     if delta >= ALLSKY_CLOUD_CLEAR_DELTA_C:
-        return "clear"
+        return "Clear"
     if delta >= ALLSKY_CLOUD_LIGHT_DELTA_C:
-        return "light clouds"
+        return "Light Clouds"
     if delta > ALLSKY_CLOUD_OVERCAST_DELTA_C:
-        return "cloudy"
-    return "overcast"
+        return "Cloudy"
+    return "Overcast"
 
 
 def overlay_item(label, value, color="#FFFFFF"):
